@@ -13,11 +13,18 @@ import httpx
 from pydantic import ValidationError
 
 from jev_decisions.config import JevConfig
-from jev_decisions.schemas import ChoiceRequest, DecisionError, ProviderChoiceResponse
+from jev_decisions.schemas import (
+    ChoiceRequest,
+    DecisionError,
+    ProviderChoiceResponse,
+    SchemaValidationError,
+)
 
 DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 QUESTION_KEY = "decision"
-_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 524, 529})
+# 429 is handled by its own explicit branch (distinct "rate_limited" code); it
+# is intentionally excluded here so this set only drives the generic 5xx path.
+_RETRYABLE_STATUS = frozenset({500, 502, 503, 524, 529})
 _BACKOFF_SECONDS = 0.5
 
 
@@ -62,7 +69,7 @@ def _parse_response(request: ChoiceRequest, body: dict[str, Any]) -> ProviderCho
         ) from None
     try:
         response.validate_against_request(request)
-    except Exception as exc:
+    except SchemaValidationError as exc:
         raise ProviderError(
             DecisionError(code="invalid_response", message=str(exc))
         ) from None

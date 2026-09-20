@@ -11,6 +11,7 @@ are provisional defaults, not calibrated values.
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -64,12 +65,13 @@ def evaluate(
     except SchemaValidationError as exc:
         return _rejected(str(exc))
 
-    ranked = sorted(response.probabilities.items(), key=lambda kv: kv[1], reverse=True)
-    top_id, top_prob = ranked[0]
-    runner_up_prob = ranked[1][1] if len(ranked) > 1 else 0.0
+    ranked_values = sorted(response.probabilities.values(), reverse=True)
+    top_prob = ranked_values[0]
+    runner_up_prob = ranked_values[1] if len(ranked_values) > 1 else 0.0
     margin = top_prob - runner_up_prob
+    selected_prob = response.probabilities[response.selected_option_id]
 
-    if response.selected_option_id != top_id:
+    if not math.isclose(selected_prob, top_prob, abs_tol=1e-9):
         return _rejected(
             "selected_option_id does not match the highest-probability option; "
             "response is internally inconsistent"

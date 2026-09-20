@@ -17,11 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 SCHEMA_VERSIONS = ("1.0",)
 
-TRUST_ORDER = ("default", "user", "project", "env", "cli")
-# Precedence order (above) governs which value wins on conflict. Trust for
-# *enabling* active mode is separate: project files are repository content and
-# may be untrusted, so they cannot flip execution to active even though they
-# outrank user config in ordinary precedence.
+# Precedence (user < project < env < cli, applied via the `layers` list in
+# load_config) governs which value wins on conflict. Trust for *enabling*
+# active mode is separate: project files are repository content and may be
+# untrusted, so they cannot flip execution to active even though they outrank
+# user config in ordinary precedence.
 _ACTIVE_MODE_TRUSTED_SOURCES = frozenset({"user", "env", "cli"})
 
 

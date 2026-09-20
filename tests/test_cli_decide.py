@@ -105,6 +105,16 @@ def test_decide_missing_file_exit_65(capsys: pytest.CaptureFixture[str]) -> None
     assert code == cli.EX_DATAERR
 
 
+def test_decide_non_object_json_exit_65(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    req_file = tmp_path / "req.json"
+    req_file.write_text("[1, 2, 3]")
+    code = cli.main(["decide", "--input", str(req_file)])
+    assert code == cli.EX_DATAERR
+    assert "invalid request" in capsys.readouterr().err
+
+
 def test_decide_reads_stdin(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

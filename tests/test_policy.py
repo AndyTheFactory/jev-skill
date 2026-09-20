@@ -52,6 +52,16 @@ def test_narrow_margin_abstains(request_: ChoiceRequest) -> None:
 
 
 
+def test_tie_break_selecting_non_first_option_not_rejected(request_: ChoiceRequest) -> None:
+    # Dict/JSON order puts "a" first, but the provider legitimately tie-broke to "b".
+    resp = ProviderChoiceResponse(
+        selected_option_id="b", probabilities={"a": 0.5, "b": 0.5, "c": 0.0}
+    )
+    decision = evaluate(request_, resp)
+    assert decision.outcome == "abstained"  # margin 0 abstains, but not rejected as inconsistent
+    assert decision.selected_option_id == "b"
+
+
 def test_tie_abstains(request_: ChoiceRequest) -> None:
     resp = ProviderChoiceResponse(
         selected_option_id="a", probabilities={"a": 0.5, "b": 0.5, "c": 0.0}

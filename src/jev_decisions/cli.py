@@ -6,7 +6,7 @@ JSON results go to stdout; diagnostics and errors go to stderr. Exit codes:
 - 1: "abstained"
 - 2: "failed" (provider unavailable/errored)
 - 3: "rejected" (malformed/untrusted response)
-- 64: CLI usage error
+- 2: CLI usage error (argparse default, e.g. missing --input/--stdin)
 - 65: invalid input data (fails validation before any network call)
 """
 
@@ -27,7 +27,6 @@ from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest
 
 EXIT_BY_OUTCOME = {"accepted": 0, "abstained": 1, "failed": 2, "rejected": 3}
-EX_USAGE = 64
 EX_DATAERR = 65
 
 
@@ -67,6 +66,8 @@ def _read_request_json(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _parse_request(raw: dict[str, Any]) -> ChoiceRequest:
+    if not isinstance(raw, dict):
+        raise TypeError(f"request must be a JSON object, got {type(raw).__name__}")
     options = raw.get("options", [])
     raw = dict(raw)
     raw["options"] = tuple(
