@@ -100,7 +100,7 @@ def _env_overrides() -> dict[str, Any]:
     if mode is not None:
         overrides.setdefault("execution", {})["mode"] = mode
     active_profiles = os.environ.get("JEV_EXECUTION_ACTIVE_PROFILES")
-    if active_profiles is not None:
+    if active_profiles is not None and active_profiles.strip():
         overrides.setdefault("execution", {})["active_profiles"] = [
             p.strip() for p in active_profiles.split(",") if p.strip()
         ]
@@ -120,18 +120,16 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
-def _requested_mode(layer: dict[str, Any]) -> str | None:
-    execution = layer.get("execution")
-    if isinstance(execution, dict):
-        mode = execution.get("mode")
-        if isinstance(mode, str):
-            return mode
-    return None
+def _execution_keys(layer: dict[str, Any]) -> set[str]:
+    """Which ``execution.*`` keys, if any, a layer touches.
 
-
-def _requests_active_profiles(layer: dict[str, Any]) -> bool:
+    Deliberately whole-section, not per-field: any key under ``execution``
+    is trust-ceiling protected, so a future field added to
+    :class:`ExecutionConfig` is covered automatically, with nothing extra
+    to remember to add here.
+    """
     execution = layer.get("execution")
-    return isinstance(execution, dict) and "active_profiles" in execution
+    return set(execution) if isinstance(execution, dict) else set()
 
 
 def load_config(
@@ -158,18 +156,14 @@ def load_config(
     ]
 
     for trust, layer in layers:
-        requested = _requested_mode(layer)
-        if requested == "active" and trust not in _ACTIVE_MODE_TRUSTED_SOURCES:
+        exec_keys = _execution_keys(layer)
+        if exec_keys and trust not in _ACTIVE_MODE_TRUSTED_SOURCES:
+            keys_desc = ",".join(sorted(exec_keys))
             raise ConfigError(
-                f"execution.mode=active cannot be set from {trust} config; "
-                f"trusted sources are {sorted(_ACTIVE_MODE_TRUSTED_SOURCES)}"
-            )
-        if _requests_active_profiles(layer) and trust not in _ACTIVE_MODE_TRUSTED_SOURCES:
-            raise ConfigError(
-                f"execution.active_profiles cannot be set from {trust} config; "
+                f"execution.{keys_desc} cannot be set from {trust} config; "
                 f"trusted sources are {sorted(_ACTIVE_MODE_TRUSTED_SOURCES)} "
-                "(a project file could otherwise widen which profiles act even "
-                "without being trusted to enable active mode itself)"
+                "(project files may be untrusted repository content, so the "
+                "whole execution section, not just mode, is off limits to them)"
             )
 
     merged: dict[str, Any] = {}

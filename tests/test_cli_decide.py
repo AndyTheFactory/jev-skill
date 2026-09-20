@@ -274,6 +274,32 @@ def test_doctor_reports_config_and_credential(capsys: pytest.CaptureFixture[str]
     assert report["execution_mode"] == "shadow"
 
 
+def test_doctor_warns_on_unknown_active_profile(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    user_config = tmp_path / ".jev" / "config.yaml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        "execution:\n  mode: active\n  active_profiles: [task_routing]\n"  # typo: underscore
+    )
+    code = cli.main(["doctor"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert "task_routing" in report["active_profiles_warning"]
+
+
+def test_doctor_no_warning_for_known_active_profile(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    user_config = tmp_path / ".jev" / "config.yaml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text("execution:\n  mode: active\n  active_profiles: [task-routing]\n")
+    code = cli.main(["doctor"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert "active_profiles_warning" not in report
+
+
 def test_doctor_never_leaks_credential(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(["doctor"])
     assert code == 0
@@ -369,6 +395,11 @@ def test_decide_explicit_question_with_profile_not_overridden(
     code = cli.main(["decide", "--stdin"])
     assert code in (0, 1)
     assert captured["request"].question == REQUEST["question"]
+    # The profile label is unverified against this self-authored content,
+    # so it must not survive onto the request: active-mode gating trusts
+    # request.profile completely and would otherwise treat arbitrary
+    # caller-supplied content as if it came from the vetted profile.
+    assert captured["request"].profile is None
 
 
 def test_doctor_check_provider_without_credential(

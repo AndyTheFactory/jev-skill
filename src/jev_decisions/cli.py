@@ -132,22 +132,32 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
     abstain_option_ids: frozenset[str] = frozenset()
     profile_id = raw.get("profile") if isinstance(raw, dict) else None
-    if profile_id is not None and "options" not in raw and "question" not in raw:
+    if profile_id is not None:
         if not isinstance(profile_id, str):
             print(f"error: invalid request: profile must be a string, got {profile_id!r}",
                   file=sys.stderr)
             return EX_DATAERR
-        try:
-            resolved = load_registry().get(profile_id)
-        except ProfileError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return EX_DATAERR
-        raw = {
-            **raw,
-            "question": resolved.question,
-            "options": [opt.model_dump() for opt in resolved.options],
-        }
-        abstain_option_ids = resolved.abstain_option_ids
+        if "options" not in raw and "question" not in raw:
+            try:
+                resolved = load_registry().get(profile_id)
+            except ProfileError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return EX_DATAERR
+            raw = {
+                **raw,
+                "question": resolved.question,
+                "options": [opt.model_dump() for opt in resolved.options],
+            }
+            abstain_option_ids = resolved.abstain_option_ids
+        else:
+            # Caller supplied their own question/options alongside a
+            # `profile` label. That label was never verified against the
+            # registry, so it must not reach the request: active-mode
+            # gating (engine._profile_is_active) trusts request.profile
+            # completely, and letting an unverified label through here
+            # would let arbitrary content masquerade as vetted profile
+            # content under active mode.
+            raw = {k: v for k, v in raw.items() if k != "profile"}
 
     try:
         request = _parse_request(raw)
@@ -243,6 +253,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         return EX_DATAERR
 
     report["execution_mode"] = config.execution.mode
+    report["active_profiles"] = list(config.execution.active_profiles)
+    if config.execution.active_profiles:
+        known_ids = {p.id for p in load_registry().list()}
+        unknown = [p for p in config.execution.active_profiles if p not in known_ids]
+        if unknown:
+            report["active_profiles_warning"] = (
+                f"unknown profile id(s) {unknown} in execution.active_profiles "
+                "(typo? active mode silently never triggers for these)"
+            )
     report["credential_present"] = config.get_api_key() is not None
 
     if args.check_provider:

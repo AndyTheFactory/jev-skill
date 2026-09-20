@@ -99,6 +99,24 @@ def test_project_cannot_set_active_profiles_even_when_mode_active_from_user(
         load_config(user_path=user, project_path=project)
 
 
+def test_project_cannot_set_even_a_harmless_explicit_shadow_mode(tmp_path: Path) -> None:
+    # The whole execution.* section is off limits to project files, even a
+    # value that matches the default -- simpler and harder to get wrong
+    # than trying to distinguish "harmless" from "dangerous" project edits.
+    project = write(tmp_path / "project.yaml", "execution:\n  mode: shadow\n")
+    with pytest.raises(ConfigError, match="cannot be set from project"):
+        load_config(user_path=tmp_path / "none.yaml", project_path=project)
+
+
+def test_project_cannot_set_multiple_execution_keys_at_once(tmp_path: Path) -> None:
+    project = write(
+        tmp_path / "project.yaml",
+        "execution:\n  mode: active\n  active_profiles: [task-routing]\n",
+    )
+    with pytest.raises(ConfigError, match="cannot be set from project"):
+        load_config(user_path=tmp_path / "none.yaml", project_path=project)
+
+
 def test_user_config_can_set_active_profiles(tmp_path: Path) -> None:
     user = write(
         tmp_path / "user.yaml", "execution:\n  mode: active\n  active_profiles: [task-routing]\n"

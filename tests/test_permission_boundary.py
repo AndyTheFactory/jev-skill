@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import StubAdapter
 
 from jev_decisions import baseline as baseline_module
 from jev_decisions import cache as cache_module
@@ -30,28 +31,6 @@ from jev_decisions.schemas import (
     DecisionError,
     ProviderChoiceResponse,
 )
-
-
-class _StubAdapter:
-    def __init__(
-        self,
-        response: ProviderChoiceResponse | None = None,
-        error: ProviderError | None = None,
-    ) -> None:
-        self._response = response
-        self._error = error
-
-    def __enter__(self) -> _StubAdapter:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        return None
-
-    def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
-        if self._error is not None:
-            raise self._error
-        assert self._response is not None
-        return self._response
 
 
 @pytest.fixture(autouse=True)
@@ -101,7 +80,7 @@ def test_action_never_permitted_in_active_mode_any_outcome(
     outcome: str,
 ) -> None:
     response = _OUTCOME_RESPONSES[outcome]
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=response))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=response))
     result = engine.run_decision(active_config, request_)
     assert result.action.permitted is False
 
@@ -110,7 +89,7 @@ def test_action_never_permitted_on_provider_failure_in_active_mode(
     active_config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     error = ProviderError(DecisionError(code="timeout", message="timed out"))
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(error=error))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(error=error))
     result = engine.run_decision(active_config, request_)
     assert result.outcome == "failed"
     assert result.action.permitted is False
@@ -124,7 +103,7 @@ def test_action_never_permitted_in_shadow_mode(
     cfg.telemetry.path = str(tmp_path / "telemetry.jsonl")
     accepted_response = _OUTCOME_RESPONSES["accepted"]
     monkeypatch.setattr(
-        engine, "OpenRouterAdapter", lambda c: _StubAdapter(response=accepted_response)
+        engine, "OpenRouterAdapter", lambda c: StubAdapter(response=accepted_response)
     )
     result = engine.run_decision(cfg, request_)
     assert result.action.permitted is False
@@ -145,7 +124,7 @@ def test_advisory_result_has_no_field_beyond_documented_ones(
 ) -> None:
     accepted_response = _OUTCOME_RESPONSES["accepted"]
     monkeypatch.setattr(
-        engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=accepted_response)
+        engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=accepted_response)
     )
     result = engine.run_decision(active_config, request_)
     assert isinstance(result, engine.AdvisoryResult)
@@ -216,7 +195,7 @@ def test_abstained_in_active_mode_produces_no_selected_option_anywhere_visible(
 ) -> None:
     abstained_response = _OUTCOME_RESPONSES["abstained"]
     monkeypatch.setattr(
-        engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=abstained_response)
+        engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=abstained_response)
     )
     result = engine.run_decision(active_config, request_)
     assert not hasattr(result, "selected_option_id")
@@ -227,7 +206,41 @@ def test_failed_in_active_mode_produces_no_selected_option_anywhere_visible(
     active_config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     error = ProviderError(DecisionError(code="timeout", message="timed out"))
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(error=error))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(error=error))
     result = engine.run_decision(active_config, request_)
     assert not hasattr(result, "selected_option_id")
     assert result.outcome == "failed"
+
+
+# --- a spoofed profile label must not borrow another profile's trust ----
+
+
+def test_profile_label_cannot_be_stapled_onto_unrelated_content(
+    active_config: JevConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Engine-level: if a caller could get request.profile="task-routing"
+    onto arbitrary self-authored content, that content would wrongly gain
+    active-mode advisory exposure. This is exactly why cli.py strips the
+    profile label whenever a request supplies its own question/options
+    instead of letting the registry populate them (see test_cli_decide.py's
+    test_decide_explicit_question_with_profile_not_overridden) -- engine.py
+    itself has no way to tell vetted profile content from a spoofed label,
+    so the guarantee has to hold at the boundary that builds the request.
+    """
+    spoofed = ChoiceRequest(
+        question="Should we wipe the production database right now?",
+        options=(
+            ChoiceOption(id="wipe", description="Wipe it"),
+            ChoiceOption(id="keep", description="Keep it"),
+        ),
+        profile="task-routing",  # unrelated to this content; would-be spoof
+    )
+    response = ProviderChoiceResponse(
+        selected_option_id="wipe", probabilities={"wipe": 0.95, "keep": 0.05}
+    )
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=response))
+    result = engine.run_decision(active_config, spoofed)
+    # engine.py alone can't detect the spoof (by design it trusts
+    # request.profile), so this documents the actual boundary: the CLI
+    # must never construct a request like this one in the first place.
+    assert isinstance(result, engine.AdvisoryResult)

@@ -8,8 +8,10 @@ gets this regardless of config, which is what makes it safe for things like
 the benchmark runner (`scripts/run_benchmark.py`) that must never reveal a
 result during a task no matter how the operator's config is set.
 
-`run_decision` is what `jev decide` actually calls. It does exactly what
-`run_shadow` does, then -- only for an "accepted" outcome, only when
+`run_decision` is what `jev decide` actually calls. It shares `run_shadow`'s
+internal `_run` (one fingerprint/cache/provider/budget/telemetry/persist
+pass -- no re-reading what was just written), then -- only for an
+"accepted" outcome, only when
 ``config.execution.mode == "active"``, and only when the request's profile
 is explicitly listed in ``config.execution.active_profiles`` -- upgrades the
 result to an :class:`AdvisoryResult` that also exposes the selected option
@@ -36,7 +38,7 @@ from jev_decisions.baseline import Baseline
 from jev_decisions.budget import BudgetExceededError
 from jev_decisions.config import JevConfig
 from jev_decisions.fingerprint import compute_fingerprint
-from jev_decisions.policy import DecisionOutcome, evaluate
+from jev_decisions.policy import Decision, DecisionOutcome, evaluate
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceRequest
 from jev_decisions.schemas import DecisionError as _DecisionError
@@ -82,27 +84,16 @@ def _profile_is_active(config: JevConfig, request: ChoiceRequest) -> bool:
     )
 
 
-def run_shadow(
+def _run(
     config: JevConfig,
     request: ChoiceRequest,
     *,
-    abstain_option_ids: frozenset[str] = frozenset(),
-    baseline: Baseline | None = None,
-) -> ShadowResult:
-    """Run one Choice decision and return only the shadow-safe summary.
-
-    ``baseline``, if given, is persisted under the same record id *before*
-    the provider is called, so it is always recorded independently of
-    whatever Jev returns. An equivalent, unexpired, previously cached
-    decision (same fingerprint: schema/question/options/context/profile/
-    model/policy/abstain-option-ids) is reused instead of calling the
-    provider again -- each call still gets its own fresh record id. Only
-    "accepted"/"abstained" outcomes are cached; "failed" and "rejected" are
-    one-off anomalies (transient error, internally-inconsistent response)
-    that deserve a fresh attempt next time, not a stale cached verdict. When
-    ``baseline.task_id`` is set, actual provider calls (not cache hits) for
-    that task are capped per rolling window; over budget fails closed the
-    same as a provider error, never as an authorization to act.
+    abstain_option_ids: frozenset[str],
+    baseline: Baseline | None,
+) -> tuple[str, Decision]:
+    """Do the actual work: fingerprint/cache, provider call, budget, persist,
+    telemetry. Returns the record id and the full in-memory Decision, so
+    callers never need to re-read what was just written back off disk.
     """
     record_id = store.new_record_id()
     if baseline is not None:
@@ -159,6 +150,34 @@ def run_shadow(
         )
     except Exception:  # telemetry must never break a completed decision
         pass
+    return record_id, decision
+
+
+def run_shadow(
+    config: JevConfig,
+    request: ChoiceRequest,
+    *,
+    abstain_option_ids: frozenset[str] = frozenset(),
+    baseline: Baseline | None = None,
+) -> ShadowResult:
+    """Run one Choice decision and return only the shadow-safe summary.
+
+    ``baseline``, if given, is persisted under the same record id *before*
+    the provider is called, so it is always recorded independently of
+    whatever Jev returns. An equivalent, unexpired, previously cached
+    decision (same fingerprint: schema/question/options/context/profile/
+    model/policy/abstain-option-ids) is reused instead of calling the
+    provider again -- each call still gets its own fresh record id. Only
+    "accepted"/"abstained" outcomes are cached; "failed" and "rejected" are
+    one-off anomalies (transient error, internally-inconsistent response)
+    that deserve a fresh attempt next time, not a stale cached verdict. When
+    ``baseline.task_id`` is set, actual provider calls (not cache hits) for
+    that task are capped per rolling window; over budget fails closed the
+    same as a provider error, never as an authorization to act.
+    """
+    record_id, decision = _run(
+        config, request, abstain_option_ids=abstain_option_ids, baseline=baseline
+    )
     return ShadowResult(record_id=record_id, outcome=decision.outcome)
 
 
@@ -177,16 +196,24 @@ def run_decision(
     back to `ShadowResult`, with no selected option visible, so normal
     (Claude's own) reasoning is what actually continues the task.
     """
-    result = run_shadow(config, request, abstain_option_ids=abstain_option_ids, baseline=baseline)
-    if result.outcome != "accepted" or not _profile_is_active(config, request):
-        return result
+    record_id, decision = _run(
+        config, request, abstain_option_ids=abstain_option_ids, baseline=baseline
+    )
+    if decision.outcome != "accepted" or not _profile_is_active(config, request):
+        return ShadowResult(record_id=record_id, outcome=decision.outcome)
 
-    decision = store.load(result.record_id)
-    assert decision.selected_option_id is not None
-    assert decision.probability is not None
+    if decision.selected_option_id is None or decision.probability is None:
+        # policy.evaluate only ever sets outcome="accepted" together with
+        # both fields, so this is an internal invariant, not a normal
+        # failure -- raised explicitly (not `assert`) so it can't silently
+        # vanish under -O and fall through to a ValidationError instead.
+        raise RuntimeError(
+            "internal invariant violated: accepted decision missing "
+            "selected_option_id/probability"
+        )
     return AdvisoryResult(
-        record_id=result.record_id,
-        outcome=result.outcome,
+        record_id=record_id,
+        outcome=decision.outcome,
         selected_option_id=decision.selected_option_id,
         probability=decision.probability,
     )

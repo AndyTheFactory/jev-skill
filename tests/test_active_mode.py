@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import StubAdapter
 
 from jev_decisions import baseline as baseline_module
 from jev_decisions import cache as cache_module
@@ -19,28 +20,6 @@ from jev_decisions import engine, store
 from jev_decisions.config import JevConfig
 from jev_decisions.provider.openrouter import ProviderError
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest, ProviderChoiceResponse
-
-
-class _StubAdapter:
-    def __init__(
-        self,
-        response: ProviderChoiceResponse | None = None,
-        error: ProviderError | None = None,
-    ) -> None:
-        self._response = response
-        self._error = error
-
-    def __enter__(self) -> _StubAdapter:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        return None
-
-    def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
-        if self._error is not None:
-            raise self._error
-        assert self._response is not None
-        return self._response
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +54,7 @@ def test_default_shadow_mode_never_advises_even_if_active_profiles_set(
     config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config.execution.active_profiles = ("task-routing",)  # mode is still "shadow"
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=ACCEPTED))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=ACCEPTED))
     result = engine.run_decision(config, request_)
     assert isinstance(result, engine.ShadowResult)
     assert not isinstance(result, engine.AdvisoryResult)
@@ -86,7 +65,7 @@ def test_active_mode_profile_not_enabled_never_advises(
 ) -> None:
     config.execution.mode = "active"
     config.execution.active_profiles = ("review-triage",)  # not this request's profile
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=ACCEPTED))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=ACCEPTED))
     result = engine.run_decision(config, request_)
     assert isinstance(result, engine.ShadowResult)
     assert not isinstance(result, engine.AdvisoryResult)
@@ -97,7 +76,7 @@ def test_active_mode_enabled_profile_accepted_advises(
 ) -> None:
     config.execution.mode = "active"
     config.execution.active_profiles = ("task-routing",)
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=ACCEPTED))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=ACCEPTED))
     result = engine.run_decision(config, request_)
     assert isinstance(result, engine.AdvisoryResult)
     assert result.selected_option_id == "a"
@@ -114,7 +93,7 @@ def test_active_mode_enabled_profile_abstained_falls_back_to_shadow(
 ) -> None:
     config.execution.mode = "active"
     config.execution.active_profiles = ("task-routing",)
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=response))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=response))
     result = engine.run_decision(config, request_)
     assert isinstance(result, engine.ShadowResult)
     assert not isinstance(result, engine.AdvisoryResult)
@@ -129,7 +108,7 @@ def test_active_mode_enabled_profile_provider_failure_falls_back_to_shadow(
     config.execution.mode = "active"
     config.execution.active_profiles = ("task-routing",)
     error = ProviderError(DecisionError(code="timeout", message="timed out"))
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(error=error))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(error=error))
     result = engine.run_decision(config, request_)
     assert isinstance(result, engine.ShadowResult)
     assert result.outcome == "failed"
@@ -144,7 +123,7 @@ def test_active_mode_enabled_profile_rejected_response_falls_back_to_shadow(
         selected_option_id="b", probabilities={"a": 0.9, "b": 0.1}, confidence=None
     )
     monkeypatch.setattr(
-        engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=inconsistent)
+        engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=inconsistent)
     )
     result = engine.run_decision(config, request_)
     assert isinstance(result, engine.ShadowResult)
@@ -161,7 +140,7 @@ def test_active_mode_dynamic_request_never_advises(
         question="Which?",
         options=(ChoiceOption(id="a", description="A"), ChoiceOption(id="b", description="B")),
     )
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=ACCEPTED))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=ACCEPTED))
     result = engine.run_decision(config, dynamic_request)
     assert isinstance(result, engine.ShadowResult)
     assert not isinstance(result, engine.AdvisoryResult)
@@ -174,7 +153,7 @@ def test_run_shadow_is_always_unconditionally_shadow_regardless_of_config(
     # even with active mode fully configured -- only run_decision may.
     config.execution.mode = "active"
     config.execution.active_profiles = ("task-routing",)
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=ACCEPTED))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=ACCEPTED))
     result = engine.run_shadow(config, request_)
     assert isinstance(result, engine.ShadowResult)
     assert not hasattr(result, "selected_option_id")
@@ -188,7 +167,7 @@ def test_advisory_result_never_exposes_confidence_or_reason(
     confident = ProviderChoiceResponse(
         selected_option_id="a", probabilities={"a": 0.95, "b": 0.05}, confidence=0.99
     )
-    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=confident))
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=confident))
     result = engine.run_decision(config, request_)
     dumped = result.model_dump()
     assert "confidence" not in dumped

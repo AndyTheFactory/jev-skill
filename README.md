@@ -104,14 +104,15 @@ JSON
 
 Or from a file: `jev decide --input request.json`.
 
-`jev decide` always runs in shadow mode: it prints only `{record_id,
+`jev decide` runs in shadow mode by default: it prints only `{record_id,
 outcome, action: {permitted: false}}` to stdout -- never the selected
 option, probability, confidence or reasoning -- plus the outcome to stderr.
 It exits 0 (accepted), 1 (abstained), 2 (failed/provider unavailable), 3
 (rejected/malformed), or 65 (invalid input, e.g. bad JSON or a validation
 error -- fails before any network call). To see the full decision, run
 `jev reveal RECORD_ID` as a separate, explicit step outside the original
-task.
+task. (The one exception is a profile explicitly listed under active mode,
+covered above -- see "Active mode" for what changes and what doesn't.)
 
 ### Manual decision, starter profile
 
