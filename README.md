@@ -177,4 +177,8 @@ GitHub Actions runs the same checks on Python 3.11, 3.12 and 3.13.
 - `config/example.yaml`: annotated example of every config field.
 - `docs/public-api.md`: the stable public Python API, versioning/migration
   policy, and a from-a-built-wheel install example.
+- `docs/cc-enrutador-integration.md`: optional CC-Enrutador state mapping,
+  its privacy boundary, and why MCP isn't in v1 core.
+- `src/jev_decisions/integrations/`: optional, disabled-by-default
+  integrations (currently just CC-Enrutador) nothing else imports.
 - `.github/workflows/ci.yml`: Python checks.

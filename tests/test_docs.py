@@ -26,6 +26,20 @@ def test_benchmark_runbook_documents_active_mode_gate() -> None:
     assert "stays there unless" in text or "remains disabled" in text.lower()
 
 
+def test_public_api_doc_documents_versioning_and_example() -> None:
+    text = (REPO_ROOT / "docs" / "public-api.md").read_text()
+    assert "semantic versioning" in text.lower()
+    assert "jev_decisions.engine" in text
+    assert "no claude code dependency" in text.lower()
+
+
+def test_cc_enrutador_doc_declines_mcp_and_documents_privacy() -> None:
+    text = (REPO_ROOT / "docs" / "cc-enrutador-integration.md").read_text()
+    assert "not introduced into v1 core" in text.lower() or "not needed for v1" in text.lower()
+    assert "privacy boundary" in text.lower()
+    assert "no forced dependency" in text.lower()
+
+
 def test_readme_documents_key_commands() -> None:
     text = (REPO_ROOT / "README.md").read_text()
     for snippet in (
