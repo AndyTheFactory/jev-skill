@@ -1,0 +1,132 @@
+"""Shadow-mode engine: isolates the full Decision from the caller.
+
+`run_shadow` is the only path `jev decide` uses to produce a decision. It
+always persists the full policy Decision to the protected store and returns
+only a :class:`ShadowResult` -- record id, outcome, and
+``action.permitted=False`` -- never the selected option, probability,
+confidence or reasoning. Those are only readable back via `jev reveal`,
+outside the original task.
+
+``config.execution.mode``/``active_profiles`` are read (recorded into
+telemetry, reported by `jev doctor`) but not yet branched on here: every
+call is shadow-only regardless of mode. Active-mode surfacing, gated
+per-profile, is M4's job (see issues #19/#20) -- this is expected for M2,
+not a bug.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, ConfigDict
+
+from jev_decisions import baseline as baseline_module
+from jev_decisions import budget as budget_module
+from jev_decisions import cache as cache_module
+from jev_decisions import store
+from jev_decisions import telemetry as telemetry_module
+from jev_decisions.baseline import Baseline
+from jev_decisions.budget import BudgetExceededError
+from jev_decisions.config import JevConfig
+from jev_decisions.fingerprint import compute_fingerprint
+from jev_decisions.policy import DecisionOutcome, evaluate
+from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
+from jev_decisions.schemas import ChoiceRequest
+from jev_decisions.schemas import DecisionError as _DecisionError
+
+
+class ActionPermission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    permitted: bool = False
+
+
+class ShadowResult(BaseModel):
+    """Everything a standard `jev decide` call in shadow mode may reveal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    record_id: str
+    outcome: DecisionOutcome
+    action: ActionPermission = ActionPermission()
+
+
+def run_shadow(
+    config: JevConfig,
+    request: ChoiceRequest,
+    *,
+    abstain_option_ids: frozenset[str] = frozenset(),
+    baseline: Baseline | None = None,
+) -> ShadowResult:
+    """Run one Choice decision and return only the shadow-safe summary.
+
+    ``baseline``, if given, is persisted under the same record id *before*
+    the provider is called, so it is always recorded independently of
+    whatever Jev returns. An equivalent, unexpired, previously cached
+    decision (same fingerprint: schema/question/options/context/profile/
+    model/policy/abstain-option-ids) is reused instead of calling the
+    provider again -- each call still gets its own fresh record id. Only
+    "accepted"/"abstained" outcomes are cached; "failed" and "rejected" are
+    one-off anomalies (transient error, internally-inconsistent response)
+    that deserve a fresh attempt next time, not a stale cached verdict. When
+    ``baseline.task_id`` is set, actual provider calls (not cache hits) for
+    that task are capped per rolling window; over budget fails closed the
+    same as a provider error, never as an authorization to act.
+    """
+    record_id = store.new_record_id()
+    if baseline is not None:
+        baseline_module.save_protected(baseline, record_id)
+
+    fingerprint = compute_fingerprint(request, config, abstain_option_ids=abstain_option_ids)
+    started = time.monotonic()
+    decision = cache_module.get(fingerprint)
+    if decision is None:
+        task_id = baseline.task_id if baseline is not None else None
+        budget_error: ProviderError | None = None
+        if task_id is not None:
+            try:
+                budget_module.check_and_increment(task_id)
+            except BudgetExceededError as exc:
+                budget_error = ProviderError(
+                    _DecisionError(code="unavailable", message=str(exc))
+                )
+
+        if budget_error is not None:
+            decision = evaluate(request, None, error=budget_error, config=config.policy)
+        else:
+            try:
+                with OpenRouterAdapter(config) as adapter:
+                    response = adapter.decide(request)
+            except ProviderError as exc:
+                decision = evaluate(request, None, error=exc, config=config.policy)
+            else:
+                decision = evaluate(
+                    request,
+                    response,
+                    config=config.policy,
+                    abstain_option_ids=abstain_option_ids,
+                )
+        if decision.outcome in ("accepted", "abstained"):
+            cache_module.put(fingerprint, decision)
+    latency_ms = (time.monotonic() - started) * 1000
+
+    store.save(decision, record_id)
+    try:
+        telemetry_module.write_event(
+            config.telemetry,
+            telemetry_module.TelemetryEvent(
+                id=record_id,
+                fingerprint=fingerprint,
+                timestamp=datetime.now(UTC),
+                profile=request.profile,
+                model=config.provider.model,
+                mode=config.execution.mode,
+                outcome=decision.outcome,
+                latency_ms=latency_ms,
+                baseline_task_id=baseline.task_id if baseline is not None else None,
+            ),
+        )
+    except Exception:  # telemetry must never break a completed decision
+        pass
+    return ShadowResult(record_id=record_id, outcome=decision.outcome)
