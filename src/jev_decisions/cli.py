@@ -91,9 +91,14 @@ def cmd_decide(args: argparse.Namespace) -> int:
         return EX_DATAERR
 
     abstain_option_ids: frozenset[str] = frozenset()
-    if isinstance(raw, dict) and raw.get("profile") and "options" not in raw:
+    profile_id = raw.get("profile") if isinstance(raw, dict) else None
+    if profile_id is not None and "options" not in raw and "question" not in raw:
+        if not isinstance(profile_id, str):
+            print(f"error: invalid request: profile must be a string, got {profile_id!r}",
+                  file=sys.stderr)
+            return EX_DATAERR
         try:
-            resolved = load_registry().get(raw["profile"])
+            resolved = load_registry().get(profile_id)
         except ProfileError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return EX_DATAERR

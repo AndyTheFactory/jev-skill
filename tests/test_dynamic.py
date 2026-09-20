@@ -65,6 +65,18 @@ def test_high_risk_permission_question_rejected(question: str) -> None:
         )
 
 
+def test_benign_use_of_production_word_not_rejected() -> None:
+    request = build_dynamic_request(
+        "Which library is more production-grade for this use case?",
+        [
+            ChoiceOption(id="a", description="Library A"),
+            ChoiceOption(id="b", description="Library B"),
+        ],
+        include_uncertain_option=False,
+    )
+    assert request.question.startswith("Which library")
+
+
 def test_high_risk_keyword_in_option_description_rejected() -> None:
     with pytest.raises(DynamicRequestRejected, match="high-risk"):
         build_dynamic_request(

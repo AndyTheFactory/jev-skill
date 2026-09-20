@@ -30,6 +30,16 @@ class ChoiceOption(BaseModel):
     description: str = Field(min_length=1, max_length=500)
 
 
+def check_options(value: tuple[ChoiceOption, ...]) -> tuple[ChoiceOption, ...]:
+    """Shared 2-8-distinct-options invariant for any Choice-option-bearing model."""
+    if not (MIN_OPTIONS <= len(value) <= MAX_OPTIONS):
+        raise ValueError(f"options must contain {MIN_OPTIONS}-{MAX_OPTIONS} entries")
+    ids = [opt.id for opt in value]
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"option ids must be distinct, got {ids}")
+    return value
+
+
 class ChoiceRequest(BaseModel):
     """Internal request for a single Choice decision."""
 
@@ -48,15 +58,7 @@ class ChoiceRequest(BaseModel):
             raise ValueError(f"unsupported schema_version {value!r}; supported: {SCHEMA_VERSIONS}")
         return value
 
-    @field_validator("options")
-    @classmethod
-    def _check_options(cls, value: tuple[ChoiceOption, ...]) -> tuple[ChoiceOption, ...]:
-        if not (MIN_OPTIONS <= len(value) <= MAX_OPTIONS):
-            raise ValueError(f"options must contain {MIN_OPTIONS}-{MAX_OPTIONS} entries")
-        ids = [opt.id for opt in value]
-        if len(set(ids)) != len(ids):
-            raise ValueError(f"option ids must be distinct, got {ids}")
-        return value
+    _check_options = field_validator("options")(check_options)
 
     def option_ids(self) -> frozenset[str]:
         return frozenset(opt.id for opt in self.options)

@@ -15,7 +15,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from jev_decisions.schemas import MAX_OPTIONS, MIN_OPTIONS, ChoiceOption
+from jev_decisions.schemas import ChoiceOption, check_options
 
 DEFAULT_PROFILES_DIR = Path(__file__).parent / "data"
 
@@ -37,15 +37,7 @@ class Profile(BaseModel):
     abstain_option_ids: frozenset[str] = frozenset()
     fallback: str
 
-    @field_validator("options")
-    @classmethod
-    def _check_options(cls, value: tuple[ChoiceOption, ...]) -> tuple[ChoiceOption, ...]:
-        if not (MIN_OPTIONS <= len(value) <= MAX_OPTIONS):
-            raise ValueError(f"options must contain {MIN_OPTIONS}-{MAX_OPTIONS} entries")
-        ids = [opt.id for opt in value]
-        if len(set(ids)) != len(ids):
-            raise ValueError(f"option ids must be distinct within a profile, got {ids}")
-        return value
+    _check_options = field_validator("options")(check_options)
 
     def model_post_init(self, __context: Any) -> None:
         declared = {opt.id for opt in self.options}

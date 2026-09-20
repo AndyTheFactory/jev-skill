@@ -209,6 +209,39 @@ def test_decide_with_profile_resolves_question_and_options(
     assert len(captured["request"].options) >= 2
 
 
+def test_decide_non_string_profile_field_exit_65(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"profile": ["a", "b"]})))
+    code = cli.main(["decide", "--stdin"])
+    assert code == cli.EX_DATAERR
+    assert "profile must be a string" in capsys.readouterr().err
+
+
+def test_decide_explicit_question_with_profile_not_overridden(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: dict[str, ChoiceRequest] = {}
+
+    class _CapturingAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            captured["request"] = request
+            return ProviderChoiceResponse(
+                selected_option_id="a", probabilities={"a": 1.0, "b": 0.0}
+            )
+
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _CapturingAdapter("accepted"))
+    import io
+
+    payload = {"profile": "task-routing", **REQUEST}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    code = cli.main(["decide", "--stdin"])
+    assert code in (0, 1)
+    assert captured["request"].question == REQUEST["question"]
+
+
 def test_doctor_check_provider_without_credential(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

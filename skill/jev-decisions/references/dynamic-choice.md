@@ -31,8 +31,9 @@ yourself.
   options could both be "correct" simultaneously, merge or re-split them.
 - **Context**: include only the evidence relevant to *this* decision (error
   text, the specific code path, the specific constraint) -- not the whole
-  file or the whole conversation. Context is capped at 8,000 characters and
-  gets truncated/rejected past that, so keep it tight.
+  file or the whole conversation. Context is capped at 8,000 characters; the
+  whole request is rejected (not silently truncated) past that limit, so
+  keep it tight.
 - **Uncertainty option**: when the options might not exhaust the real state
   of the world (you're not sure you've listed every plausible answer), add
   an explicit `insufficient_context` or `unknown` option rather than forcing
