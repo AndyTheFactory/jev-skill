@@ -9,10 +9,16 @@ JSON results go to stdout; diagnostics and errors go to stderr. Exit codes:
 - 2: CLI usage error (argparse default, e.g. missing --input/--stdin)
 - 65: invalid input data (fails validation before any network call)
 
-``decide`` always runs in shadow mode: it prints only a record id, outcome
-and ``action.permitted=false`` -- never the selected option or probability.
-Use ``jev reveal RECORD_ID`` as a separate, explicit step to see the full
-protected decision.
+``decide`` runs in shadow mode by default: it prints only a record id,
+outcome and ``action.permitted=false`` -- never the selected option or
+probability. Use ``jev reveal RECORD_ID`` as a separate, explicit step to
+see the full protected decision. The only exception is a request whose
+``profile`` is explicitly listed in a trusted config's
+``execution.active_profiles`` with ``execution.mode: active``: for an
+"accepted" outcome only, the output additionally includes
+``selected_option_id``/``probability`` as a visible recommendation.
+``action.permitted`` is still always ``false`` even then -- this never
+authorizes anything by itself.
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ from jev_decisions import __version__, store
 from jev_decisions.baseline import BaselineError, load_baseline
 from jev_decisions.baseline import load_protected as load_protected_baseline
 from jev_decisions.config import ConfigError, load_config
-from jev_decisions.engine import run_shadow
+from jev_decisions.engine import run_decision
 from jev_decisions.evaluation.dataset import DatasetError, load_dataset
 from jev_decisions.evaluation.metrics import EvaluationError, build_report, load_manifest
 from jev_decisions.profiles import ProfileError, load_registry
@@ -163,7 +169,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return EX_DATAERR
 
-    result = run_shadow(
+    result = run_decision(
         config, request, abstain_option_ids=abstain_option_ids, baseline=baseline
     )
     print(json.dumps(result.model_dump(), indent=2))

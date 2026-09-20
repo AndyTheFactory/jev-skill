@@ -1,17 +1,23 @@
 """Shadow-mode engine: isolates the full Decision from the caller.
 
-`run_shadow` is the only path `jev decide` uses to produce a decision. It
-always persists the full policy Decision to the protected store and returns
-only a :class:`ShadowResult` -- record id, outcome, and
+`run_shadow` always persists the full policy Decision to the protected
+store and returns only a :class:`ShadowResult` -- record id, outcome, and
 ``action.permitted=False`` -- never the selected option, probability,
-confidence or reasoning. Those are only readable back via `jev reveal`,
-outside the original task.
+confidence or reasoning. It is unconditional: every caller of `run_shadow`
+gets this regardless of config, which is what makes it safe for things like
+the benchmark runner (`scripts/run_benchmark.py`) that must never reveal a
+result during a task no matter how the operator's config is set.
 
-``config.execution.mode``/``active_profiles`` are read (recorded into
-telemetry, reported by `jev doctor`) but not yet branched on here: every
-call is shadow-only regardless of mode. Active-mode surfacing, gated
-per-profile, is M4's job (see issues #19/#20) -- this is expected for M2,
-not a bug.
+`run_decision` is what `jev decide` actually calls. It does exactly what
+`run_shadow` does, then -- only for an "accepted" outcome, only when
+``config.execution.mode == "active"``, and only when the request's profile
+is explicitly listed in ``config.execution.active_profiles`` -- upgrades the
+result to an :class:`AdvisoryResult` that also exposes the selected option
+and its probability. ``action.permitted`` is still always False on
+`AdvisoryResult`: this makes the recommendation visible for Claude's own
+reasoning to weigh, same as a hint, and never authorizes anything by itself
+(see #19/#20). Every other case (shadow mode, a profile not explicitly
+enabled, or any non-"accepted" outcome) gets the ordinary `ShadowResult`.
 """
 
 from __future__ import annotations
@@ -50,6 +56,30 @@ class ShadowResult(BaseModel):
     record_id: str
     outcome: DecisionOutcome
     action: ActionPermission = ActionPermission()
+
+
+class AdvisoryResult(BaseModel):
+    """Surfaced only for outcome="accepted" on an explicitly active-mode-enabled
+    profile. ``action.permitted`` is still always False -- this is a visible
+    recommendation for Claude's own reasoning, never an execution authorization,
+    a permission grant, or a substitute for the user's explicit instructions.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    record_id: str
+    outcome: DecisionOutcome
+    selected_option_id: str
+    probability: float
+    action: ActionPermission = ActionPermission()
+
+
+def _profile_is_active(config: JevConfig, request: ChoiceRequest) -> bool:
+    return (
+        config.execution.mode == "active"
+        and request.profile is not None
+        and request.profile in config.execution.active_profiles
+    )
 
 
 def run_shadow(
@@ -130,3 +160,33 @@ def run_shadow(
     except Exception:  # telemetry must never break a completed decision
         pass
     return ShadowResult(record_id=record_id, outcome=decision.outcome)
+
+
+def run_decision(
+    config: JevConfig,
+    request: ChoiceRequest,
+    *,
+    abstain_option_ids: frozenset[str] = frozenset(),
+    baseline: Baseline | None = None,
+) -> ShadowResult | AdvisoryResult:
+    """Entry point for `jev decide`: shadow by default, advisory only when
+    explicitly enabled for this exact profile and the outcome is "accepted".
+
+    Never returns anything different from `run_shadow` for shadow mode, a
+    non-enabled profile, or a non-"accepted" outcome -- those always fall
+    back to `ShadowResult`, with no selected option visible, so normal
+    (Claude's own) reasoning is what actually continues the task.
+    """
+    result = run_shadow(config, request, abstain_option_ids=abstain_option_ids, baseline=baseline)
+    if result.outcome != "accepted" or not _profile_is_active(config, request):
+        return result
+
+    decision = store.load(result.record_id)
+    assert decision.selected_option_id is not None
+    assert decision.probability is not None
+    return AdvisoryResult(
+        record_id=result.record_id,
+        outcome=result.outcome,
+        selected_option_id=decision.selected_option_id,
+        probability=decision.probability,
+    )

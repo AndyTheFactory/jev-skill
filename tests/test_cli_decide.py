@@ -203,6 +203,45 @@ def test_reveal_without_baseline_shows_null(
     assert json.loads(capsys.readouterr().out)["baseline"] is None
 
 
+def test_decide_active_mode_enabled_profile_exposes_selected_option(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    user_config = tmp_path / ".jev" / "config.yaml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text("execution:\n  mode: active\n  active_profiles: [task-routing]\n")
+
+    class _ProfileAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            option_ids = [o.id for o in request.options]
+            probs = {oid: 0.0 for oid in option_ids}
+            probs[option_ids[0]] = 1.0
+            return ProviderChoiceResponse(selected_option_id=option_ids[0], probabilities=probs)
+
+    _patch_adapter(monkeypatch, lambda config: _ProfileAdapter("accepted"))
+    payload = {"profile": "task-routing", "context": "x"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    code = cli.main(["decide", "--stdin"])
+    assert code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "selected_option_id" in out
+    assert out["action"]["permitted"] is False
+
+
+def test_decide_active_mode_without_enabled_profile_stays_shadow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    user_config = tmp_path / ".jev" / "config.yaml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text("execution:\n  mode: active\n  active_profiles: [review-triage]\n")
+
+    _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
+    req_file = _write_request(tmp_path / "req.json", REQUEST)
+    code = cli.main(["decide", "--input", str(req_file)])
+    assert code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "selected_option_id" not in out
+
+
 def test_reveal_unknown_record_id_exit_65(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(["reveal", "0" * 32])
     assert code == cli.EX_DATAERR
