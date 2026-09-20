@@ -1,0 +1,21 @@
+id: dynamic-typical-001
+dataset_version: v1
+split: dev
+category: typical
+profile: null
+question: Which caching strategy fits this endpoint?
+options:
+  - id: lru
+    description: In-process LRU cache.
+  - id: redis
+    description: Shared Redis cache.
+context: >
+  Endpoint is read-heavy, served from a single process, and the cached
+  values are cheap to recompute if lost on restart.
+label:
+  correct_option_id: lru
+  source: reviewed_label
+  notes: >
+    Single-process, restart-tolerant workload: an in-process LRU cache
+    avoids the operational cost of a shared cache with no real benefit
+    here.

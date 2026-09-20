@@ -1,0 +1,15 @@
+id: investigation-typical-002
+dataset_version: v1
+split: dev
+category: typical
+profile: investigation
+context: >
+  Bug is already reliably reproduced locally. The service logs a stack
+  trace on every failing request, and the logging infrastructure is known
+  to be reliable and complete for this service.
+label:
+  correct_option_id: read-logs
+  source: reviewed_label
+  notes: >
+    With a reliable reproduction and known-good logs already available,
+    checking the logged stack trace is cheaper than reading code cold.

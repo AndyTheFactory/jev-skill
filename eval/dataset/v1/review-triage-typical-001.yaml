@@ -1,0 +1,15 @@
+id: review-triage-typical-001
+dataset_version: v1
+split: eval
+category: typical
+profile: review-triage
+context: >
+  Finding: "User-supplied `filename` is concatenated directly into a shell
+  command without escaping, allowing command injection." No mitigating
+  factors (input is externally reachable).
+label:
+  correct_option_id: blocking
+  source: task_evidence
+  notes: >
+    Confirmed command-injection vulnerability with externally reachable
+    input; the actual PR review blocked merge until fixed.

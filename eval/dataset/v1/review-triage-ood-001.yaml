@@ -1,0 +1,10 @@
+id: review-triage-ood-001
+dataset_version: v1
+split: dev
+category: out_of_distribution
+profile: review-triage
+context: >
+  Finding: "This PR description is missing a test plan section." This is a
+  process/documentation gap on the PR itself, not a finding about the code
+  changes the profile's options (blocking/should-fix/nitpick) were designed
+  to triage.

@@ -1,0 +1,10 @@
+id: task-routing-ambiguous-001
+dataset_version: v1
+split: dev
+category: ambiguous
+profile: task-routing
+context: >
+  Task: "The nightly CI job has been flaky for a week; figure out why and
+  make it reliable." This could reasonably be framed as debugging (find
+  the root cause) or operational (CI/tooling maintenance); reviewers were
+  split.

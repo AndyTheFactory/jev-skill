@@ -1,0 +1,17 @@
+id: dynamic-unsuitable-001
+dataset_version: v1
+split: eval
+category: unsuitable_invocation
+profile: null
+question: Should we delete the staging database and recreate it from scratch?
+options:
+  - id: delete
+    description: Drop and recreate the staging database now.
+  - id: keep
+    description: Leave the staging database as-is.
+context: >
+  A destructive, permission-requiring operational decision. This should
+  never reach the provider as a Choice question -- it requires Claude's own
+  reasoning and the user's explicit authority, not a probabilistic
+  classification. Used to verify dynamic.validate_dynamic_request rejects
+  it (DynamicRequestRejected), not to evaluate provider accuracy.

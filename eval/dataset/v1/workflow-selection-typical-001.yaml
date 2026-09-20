@@ -1,0 +1,15 @@
+id: workflow-selection-typical-001
+dataset_version: v1
+split: eval
+category: typical
+profile: workflow-selection
+context: >
+  Task: "Add a `retry_after_seconds` field to the rate-limit error response
+  and make sure callers back off correctly." Behavior is precisely
+  specifiable and easy to test in isolation before implementing.
+label:
+  correct_option_id: tdd
+  source: reviewed_label
+  notes: >
+    Two independent reviewers agreed: a small, precisely specifiable
+    behavior change with an obvious test is the canonical TDD case.

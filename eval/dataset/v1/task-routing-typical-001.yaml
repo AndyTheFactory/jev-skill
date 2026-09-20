@@ -1,0 +1,15 @@
+id: task-routing-typical-001
+dataset_version: v1
+split: dev
+category: typical
+profile: task-routing
+context: >
+  Task: "Fix the off-by-one error in the pagination helper that drops the
+  last row of every page." No new feature requested, no infra touched.
+label:
+  correct_option_id: debugging
+  source: task_evidence
+  notes: >
+    The task description is explicitly framed as fixing a reported bug;
+    the PR that resolved it (repo history) is titled "fix: pagination
+    helper drops last row".

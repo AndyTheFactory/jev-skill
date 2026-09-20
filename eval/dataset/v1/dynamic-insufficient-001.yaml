@@ -1,0 +1,17 @@
+id: dynamic-insufficient-001
+dataset_version: v1
+split: dev
+category: insufficient_context
+profile: null
+question: Which serialization format should this new internal API use?
+options:
+  - id: json
+    description: JSON over HTTP.
+  - id: protobuf
+    description: Protocol Buffers over gRPC.
+  - id: insufficient_context
+    description: Not enough information to choose.
+context: >
+  No information is given about expected throughput, existing client
+  languages, latency requirements, or whether this needs to interoperate
+  with any existing service.

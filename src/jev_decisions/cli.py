@@ -31,9 +31,12 @@ from jev_decisions.baseline import BaselineError, load_baseline
 from jev_decisions.baseline import load_protected as load_protected_baseline
 from jev_decisions.config import ConfigError, load_config
 from jev_decisions.engine import run_shadow
+from jev_decisions.evaluation.dataset import DatasetError, load_dataset
+from jev_decisions.evaluation.metrics import EvaluationError, build_report, load_manifest
 from jev_decisions.profiles import ProfileError, load_registry
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest
+from jev_decisions.telemetry import read_events
 
 EXIT_BY_OUTCOME = {"accepted": 0, "abstained": 1, "failed": 2, "rejected": 3}
 EX_DATAERR = 65
@@ -77,6 +80,19 @@ def build_parser() -> argparse.ArgumentParser:
     profile_sub.add_parser("list", help="List available profiles.")
     show = profile_sub.add_parser("show", help="Show one profile's definition.")
     show.add_argument("profile_id")
+
+    evaluate = subparsers.add_parser(
+        "evaluate", help="Score a run manifest against the labeled dataset and telemetry."
+    )
+    evaluate.add_argument(
+        "--input",
+        required=True,
+        metavar="FILE",
+        help="Run manifest: JSON [{example_id, record_id}].",
+    )
+    evaluate.add_argument(
+        "--dataset", metavar="DIR", help="Dataset directory (default: eval/dataset/v1)."
+    )
 
     return parser
 
@@ -182,6 +198,33 @@ def cmd_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    try:
+        entries = load_manifest(Path(args.input))
+    except EvaluationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EX_DATAERR
+
+    dataset_dir = Path(args.dataset) if args.dataset else None
+    try:
+        dataset = load_dataset(dataset_dir)
+    except DatasetError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EX_DATAERR
+    dataset_by_id = {e.id: e for e in dataset}
+
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EX_DATAERR
+    telemetry_events = read_events(config.telemetry)
+
+    report = build_report(entries, dataset_by_id, telemetry_events)
+    print(json.dumps(report.model_dump(mode="json"), indent=2))
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     report: dict[str, Any] = {}
 
@@ -231,6 +274,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_doctor(args)
     if args.command == "profile":
         return cmd_profile(args)
+    if args.command == "evaluate":
+        return cmd_evaluate(args)
 
     parser.print_help()
     return 0
