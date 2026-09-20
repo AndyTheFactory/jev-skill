@@ -1,9 +1,14 @@
 """Versioned YAML configuration with explicit precedence and credential handling.
 
 Precedence (highest wins): CLI overrides > environment > project file > user file > defaults.
-Trust ceiling: ``execution.mode: active`` may only come from a source at or above
-``user`` trust (user file, environment, CLI) -- never from a project file, since
-project files may be untrusted repository content.
+Trust ceiling: the whole ``execution.*`` section (``mode`` and
+``active_profiles``) may only come from a source at or above ``user`` trust
+(user file, environment, CLI) -- never from a project file, since project
+files may be untrusted repository content. This is deliberately broader than
+just ``mode``: a project file that could edit ``active_profiles`` while a
+trusted layer separately enables ``mode: active`` would otherwise be able to
+widen which profiles act, without ever being trusted to turn active mode on
+itself.
 """
 
 from __future__ import annotations
@@ -94,6 +99,11 @@ def _env_overrides() -> dict[str, Any]:
     mode = os.environ.get("JEV_EXECUTION_MODE")
     if mode is not None:
         overrides.setdefault("execution", {})["mode"] = mode
+    active_profiles = os.environ.get("JEV_EXECUTION_ACTIVE_PROFILES")
+    if active_profiles is not None and active_profiles.strip():
+        overrides.setdefault("execution", {})["active_profiles"] = [
+            p.strip() for p in active_profiles.split(",") if p.strip()
+        ]
     model = os.environ.get("JEV_PROVIDER_MODEL")
     if model is not None:
         overrides.setdefault("provider", {})["model"] = model
@@ -110,13 +120,16 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
-def _requested_mode(layer: dict[str, Any]) -> str | None:
+def _execution_keys(layer: dict[str, Any]) -> set[str]:
+    """Which ``execution.*`` keys, if any, a layer touches.
+
+    Deliberately whole-section, not per-field: any key under ``execution``
+    is trust-ceiling protected, so a future field added to
+    :class:`ExecutionConfig` is covered automatically, with nothing extra
+    to remember to add here.
+    """
     execution = layer.get("execution")
-    if isinstance(execution, dict):
-        mode = execution.get("mode")
-        if isinstance(mode, str):
-            return mode
-    return None
+    return set(execution) if isinstance(execution, dict) else set()
 
 
 def load_config(
@@ -143,11 +156,14 @@ def load_config(
     ]
 
     for trust, layer in layers:
-        requested = _requested_mode(layer)
-        if requested == "active" and trust not in _ACTIVE_MODE_TRUSTED_SOURCES:
+        exec_keys = _execution_keys(layer)
+        if exec_keys and trust not in _ACTIVE_MODE_TRUSTED_SOURCES:
+            keys_desc = ",".join(sorted(exec_keys))
             raise ConfigError(
-                f"execution.mode=active cannot be set from {trust} config; "
-                f"trusted sources are {sorted(_ACTIVE_MODE_TRUSTED_SOURCES)}"
+                f"execution.{keys_desc} cannot be set from {trust} config; "
+                f"trusted sources are {sorted(_ACTIVE_MODE_TRUSTED_SOURCES)} "
+                "(project files may be untrusted repository content, so the "
+                "whole execution section, not just mode, is off limits to them)"
             )
 
     merged: dict[str, Any] = {}

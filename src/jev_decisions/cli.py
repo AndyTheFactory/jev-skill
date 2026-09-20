@@ -9,10 +9,16 @@ JSON results go to stdout; diagnostics and errors go to stderr. Exit codes:
 - 2: CLI usage error (argparse default, e.g. missing --input/--stdin)
 - 65: invalid input data (fails validation before any network call)
 
-``decide`` always runs in shadow mode: it prints only a record id, outcome
-and ``action.permitted=false`` -- never the selected option or probability.
-Use ``jev reveal RECORD_ID`` as a separate, explicit step to see the full
-protected decision.
+``decide`` runs in shadow mode by default: it prints only a record id,
+outcome and ``action.permitted=false`` -- never the selected option or
+probability. Use ``jev reveal RECORD_ID`` as a separate, explicit step to
+see the full protected decision. The only exception is a request whose
+``profile`` is explicitly listed in a trusted config's
+``execution.active_profiles`` with ``execution.mode: active``: for an
+"accepted" outcome only, the output additionally includes
+``selected_option_id``/``probability`` as a visible recommendation.
+``action.permitted`` is still always ``false`` even then -- this never
+authorizes anything by itself.
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ from jev_decisions import __version__, store
 from jev_decisions.baseline import BaselineError, load_baseline
 from jev_decisions.baseline import load_protected as load_protected_baseline
 from jev_decisions.config import ConfigError, load_config
-from jev_decisions.engine import run_shadow
+from jev_decisions.engine import run_decision
 from jev_decisions.evaluation.dataset import DatasetError, load_dataset
 from jev_decisions.evaluation.metrics import EvaluationError, build_report, load_manifest
 from jev_decisions.profiles import ProfileError, load_registry
@@ -126,22 +132,32 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
     abstain_option_ids: frozenset[str] = frozenset()
     profile_id = raw.get("profile") if isinstance(raw, dict) else None
-    if profile_id is not None and "options" not in raw and "question" not in raw:
+    if profile_id is not None:
         if not isinstance(profile_id, str):
             print(f"error: invalid request: profile must be a string, got {profile_id!r}",
                   file=sys.stderr)
             return EX_DATAERR
-        try:
-            resolved = load_registry().get(profile_id)
-        except ProfileError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return EX_DATAERR
-        raw = {
-            **raw,
-            "question": resolved.question,
-            "options": [opt.model_dump() for opt in resolved.options],
-        }
-        abstain_option_ids = resolved.abstain_option_ids
+        if "options" not in raw and "question" not in raw:
+            try:
+                resolved = load_registry().get(profile_id)
+            except ProfileError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return EX_DATAERR
+            raw = {
+                **raw,
+                "question": resolved.question,
+                "options": [opt.model_dump() for opt in resolved.options],
+            }
+            abstain_option_ids = resolved.abstain_option_ids
+        else:
+            # Caller supplied their own question/options alongside a
+            # `profile` label. That label was never verified against the
+            # registry, so it must not reach the request: active-mode
+            # gating (engine._profile_is_active) trusts request.profile
+            # completely, and letting an unverified label through here
+            # would let arbitrary content masquerade as vetted profile
+            # content under active mode.
+            raw = {k: v for k, v in raw.items() if k != "profile"}
 
     try:
         request = _parse_request(raw)
@@ -163,7 +179,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return EX_DATAERR
 
-    result = run_shadow(
+    result = run_decision(
         config, request, abstain_option_ids=abstain_option_ids, baseline=baseline
     )
     print(json.dumps(result.model_dump(), indent=2))
@@ -237,6 +253,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         return EX_DATAERR
 
     report["execution_mode"] = config.execution.mode
+    report["active_profiles"] = list(config.execution.active_profiles)
+    if config.execution.active_profiles:
+        known_ids = {p.id for p in load_registry().list()}
+        unknown = [p for p in config.execution.active_profiles if p not in known_ids]
+        if unknown:
+            report["active_profiles_warning"] = (
+                f"unknown profile id(s) {unknown} in execution.active_profiles "
+                "(typo? active mode silently never triggers for these)"
+            )
     report["credential_present"] = config.get_api_key() is not None
 
     if args.check_provider:

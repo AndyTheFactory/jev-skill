@@ -88,6 +88,55 @@ def test_project_active_mode_rejected_even_if_env_shadow(
         load_config(user_path=tmp_path / "none.yaml", project_path=project)
 
 
+def test_project_cannot_set_active_profiles_even_when_mode_active_from_user(
+    tmp_path: Path,
+) -> None:
+    user = write(tmp_path / "user.yaml", "execution:\n  mode: active\n")
+    project = write(
+        tmp_path / "project.yaml", "execution:\n  active_profiles: [task-routing]\n"
+    )
+    with pytest.raises(ConfigError, match="active_profiles cannot be set from project"):
+        load_config(user_path=user, project_path=project)
+
+
+def test_project_cannot_set_even_a_harmless_explicit_shadow_mode(tmp_path: Path) -> None:
+    # The whole execution.* section is off limits to project files, even a
+    # value that matches the default -- simpler and harder to get wrong
+    # than trying to distinguish "harmless" from "dangerous" project edits.
+    project = write(tmp_path / "project.yaml", "execution:\n  mode: shadow\n")
+    with pytest.raises(ConfigError, match="cannot be set from project"):
+        load_config(user_path=tmp_path / "none.yaml", project_path=project)
+
+
+def test_project_cannot_set_multiple_execution_keys_at_once(tmp_path: Path) -> None:
+    project = write(
+        tmp_path / "project.yaml",
+        "execution:\n  mode: active\n  active_profiles: [task-routing]\n",
+    )
+    with pytest.raises(ConfigError, match="cannot be set from project"):
+        load_config(user_path=tmp_path / "none.yaml", project_path=project)
+
+
+def test_user_config_can_set_active_profiles(tmp_path: Path) -> None:
+    user = write(
+        tmp_path / "user.yaml", "execution:\n  mode: active\n  active_profiles: [task-routing]\n"
+    )
+    cfg = load_config(user_path=user, project_path=tmp_path / "none.yaml")
+    assert cfg.execution.active_profiles == ("task-routing",)
+
+
+def test_env_can_set_active_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JEV_EXECUTION_ACTIVE_PROFILES", "task-routing, review-triage")
+    cfg = load_config(user_path=tmp_path / "none.yaml", project_path=tmp_path / "none2.yaml")
+    assert cfg.execution.active_profiles == ("task-routing", "review-triage")
+
+
+def test_active_profiles_empty_by_default(tmp_path: Path) -> None:
+    cfg = load_config(user_path=tmp_path / "none.yaml", project_path=tmp_path / "none2.yaml")
+    assert cfg.execution.active_profiles == ()
+    assert cfg.execution.mode == "shadow"
+
+
 def test_unsupported_schema_version_rejected(tmp_path: Path) -> None:
     user = write(tmp_path / "user.yaml", "schema_version: '99.0'\n")
     with pytest.raises(ConfigError, match="unsupported schema_version"):

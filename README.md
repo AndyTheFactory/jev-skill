@@ -52,7 +52,29 @@ wins): CLI overrides > environment (`JEV_*`) > project file (`./.jev.yaml`)
 Execution defaults to `shadow` mode and stays there unless you explicitly
 opt in at the user-config or environment level -- a project-committed
 `.jev.yaml` cannot enable `active` mode, since project files may be
-untrusted repository content.
+untrusted repository content. The same restriction applies to
+`execution.active_profiles`: a project file cannot list a profile there
+either, even if a trusted layer has separately enabled `active` mode --
+otherwise a project file could widen which profiles act without ever being
+trusted to turn active mode on.
+
+### Active mode (opt-in, per profile)
+
+```yaml
+# ~/.jev/config.yaml (or set via JEV_EXECUTION_MODE / JEV_EXECUTION_ACTIVE_PROFILES)
+execution:
+  mode: active
+  active_profiles: [task-routing]
+```
+
+Only for a request using an explicitly listed profile, and only on an
+`accepted` outcome, `jev decide` additionally includes `selected_option_id`
+and `probability` in its output. `action.permitted` is still always
+`false` -- this makes the recommendation visible as one more input for
+Claude's own reasoning, never an authorization. Every other case (shadow
+mode, a profile not listed, or any non-`accepted` outcome) is unaffected
+and behaves exactly as documented above. See `eval/BENCHMARK.md` for the
+evidence a profile should have behind it before this is turned on.
 
 ## Usage
 
@@ -82,14 +104,15 @@ JSON
 
 Or from a file: `jev decide --input request.json`.
 
-`jev decide` always runs in shadow mode: it prints only `{record_id,
+`jev decide` runs in shadow mode by default: it prints only `{record_id,
 outcome, action: {permitted: false}}` to stdout -- never the selected
 option, probability, confidence or reasoning -- plus the outcome to stderr.
 It exits 0 (accepted), 1 (abstained), 2 (failed/provider unavailable), 3
 (rejected/malformed), or 65 (invalid input, e.g. bad JSON or a validation
 error -- fails before any network call). To see the full decision, run
 `jev reveal RECORD_ID` as a separate, explicit step outside the original
-task.
+task. (The one exception is a profile explicitly listed under active mode,
+covered above -- see "Active mode" for what changes and what doesn't.)
 
 ### Manual decision, starter profile
 
