@@ -1,0 +1,175 @@
+"""End-to-end mocked tests for `jev decide` and `jev doctor`."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from jev_decisions import cli
+from jev_decisions.provider.openrouter import ProviderError
+from jev_decisions.schemas import ChoiceRequest, DecisionError, ProviderChoiceResponse
+
+REQUEST = {
+    "question": "Which approach?",
+    "options": [
+        {"id": "a", "description": "Approach A"},
+        {"id": "b", "description": "Approach B"},
+    ],
+}
+
+
+class _StubAdapter:
+    def __init__(self, outcome: str) -> None:
+        self._outcome = outcome
+
+    def __enter__(self) -> _StubAdapter:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+    def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+        if self._outcome == "accepted":
+            return ProviderChoiceResponse(
+                selected_option_id="a", probabilities={"a": 0.9, "b": 0.1}, confidence=0.95
+            )
+        if self._outcome == "abstained":
+            return ProviderChoiceResponse(
+                selected_option_id="a", probabilities={"a": 0.5, "b": 0.5}
+            )
+        if self._outcome == "failed":
+            raise ProviderError(DecisionError(code="timeout", message="timed out"))
+        raise AssertionError(self._outcome)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.delenv("JEV_EXECUTION_MODE", raising=False)
+
+
+def _write_request(path: Path, payload: dict[str, Any]) -> Path:
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def test_decide_accepted_exit_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _StubAdapter("accepted"))
+    req_file = _write_request(tmp_path / "req.json", REQUEST)
+    code = cli.main(["decide", "--input", str(req_file)])
+    assert code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["outcome"] == "accepted"
+    assert out["selected_option_id"] == "a"
+
+
+def test_decide_abstained_exit_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _StubAdapter("abstained"))
+    req_file = _write_request(tmp_path / "req.json", REQUEST)
+    code = cli.main(["decide", "--input", str(req_file)])
+    assert code == 1
+    assert json.loads(capsys.readouterr().out)["outcome"] == "abstained"
+
+
+def test_decide_provider_failure_exit_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _StubAdapter("failed"))
+    req_file = _write_request(tmp_path / "req.json", REQUEST)
+    code = cli.main(["decide", "--input", str(req_file)])
+    assert code == 2
+    assert json.loads(capsys.readouterr().out)["outcome"] == "failed"
+
+
+def test_decide_invalid_request_exit_65(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = {"question": "Q?", "options": [{"id": "only-one", "description": "x"}]}
+    req_file = _write_request(tmp_path / "req.json", bad)
+    code = cli.main(["decide", "--input", str(req_file)])
+    assert code == cli.EX_DATAERR
+    assert "invalid request" in capsys.readouterr().err
+
+
+def test_decide_missing_file_exit_65(capsys: pytest.CaptureFixture[str]) -> None:
+    code = cli.main(["decide", "--input", "/nonexistent/path.json"])
+    assert code == cli.EX_DATAERR
+
+
+def test_decide_non_object_json_exit_65(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    req_file = tmp_path / "req.json"
+    req_file.write_text("[1, 2, 3]")
+    code = cli.main(["decide", "--input", str(req_file)])
+    assert code == cli.EX_DATAERR
+    assert "invalid request" in capsys.readouterr().err
+
+
+def test_decide_reads_stdin(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _StubAdapter("accepted"))
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps(REQUEST)))
+    code = cli.main(["decide", "--stdin"])
+    assert code == 0
+
+
+def test_decide_requires_input_or_stdin() -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["decide"])
+    assert exc.value.code == 2  # argparse usage error
+
+
+def test_doctor_reports_config_and_credential(capsys: pytest.CaptureFixture[str]) -> None:
+    code = cli.main(["doctor"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["config"] == "ok"
+    assert report["credential_present"] is True
+    assert report["execution_mode"] == "shadow"
+
+
+def test_doctor_never_leaks_credential(capsys: pytest.CaptureFixture[str]) -> None:
+    code = cli.main(["doctor"])
+    assert code == 0
+    assert "test-key" not in capsys.readouterr().out
+
+
+def test_doctor_check_provider_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _StubAdapter("accepted"))
+    code = cli.main(["doctor", "--check-provider"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["provider_connectivity"] == "ok"
+
+
+def test_doctor_check_provider_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _StubAdapter("failed"))
+    code = cli.main(["doctor", "--check-provider"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["provider_connectivity"] == "error: timeout"
+
+
+def test_doctor_check_provider_without_credential(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    code = cli.main(["doctor", "--check-provider"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["provider_connectivity"] == "skipped: no credential"
