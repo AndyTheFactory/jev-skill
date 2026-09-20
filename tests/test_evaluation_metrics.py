@@ -296,6 +296,62 @@ def test_unknown_example_id_reported_not_crashed(tmp_path: Path) -> None:
     assert "does-not-exist" in report.missing_records
 
 
+def test_malformed_record_id_reported_not_crashed(tmp_path: Path) -> None:
+    dataset = {"e1": make_example("e1", labeled=False)}
+    entries = [RunEntry(example_id="e1", record_id="not-a-valid-hex-id")]
+
+    report = build_report(entries, dataset, [])
+    assert "e1" in report.missing_records
+    assert report.overall.n == 0
+
+
+def test_rates_not_available_when_no_records_not_fabricated_zero(tmp_path: Path) -> None:
+    dataset = {"e1": make_example("e1", labeled=False)}
+    entries = [RunEntry(example_id="e1", record_id="a" * 32)]  # never saved: 0 joined records
+
+    report = build_report(entries, dataset, [])
+    assert report.overall.n == 0
+    assert report.overall.coverage == NOT_AVAILABLE
+    assert report.overall.abstention_rate == NOT_AVAILABLE
+    assert report.overall.rejected_rate == NOT_AVAILABLE
+    assert report.overall.failed_rate == NOT_AVAILABLE
+
+
+def test_baseline_agreement_no_partial_word_false_positive(tmp_path: Path) -> None:
+    dataset = {"e1": make_example("e1", labeled=False)}
+    put_decision("a" * 32, accepted("coding"))
+    baseline_module.save_protected(
+        Baseline(action="fix an encoding bug in the parser", recorded_at=datetime.now(UTC)),
+        "a" * 32,
+    )
+    entries = [RunEntry(example_id="e1", record_id="a" * 32)]
+
+    report = build_report(entries, dataset, [])
+    # "coding" must not match inside "encoding"
+    assert report.overall.baseline_agreement == pytest.approx(0.0)
+
+
+def test_profile_based_label_validated_against_real_profile_options(tmp_path: Path) -> None:
+    from jev_decisions.evaluation.dataset import DatasetError, load_dataset
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(
+        """
+id: bad
+dataset_version: v1
+split: dev
+category: typical
+profile: task-routing
+context: "x"
+label:
+  correct_option_id: codeing
+  source: reviewed_label
+"""
+    )
+    with pytest.raises(DatasetError, match="not among profile"):
+        load_dataset(tmp_path)
+
+
 def test_load_manifest_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps([{"example_id": "e1", "record_id": "a" * 32}]))

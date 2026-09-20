@@ -18,6 +18,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
+from jev_decisions.profiles import ProfileError, ProfileRegistry, load_registry
 from jev_decisions.schemas import MAX_OPTIONS, MIN_OPTIONS, ChoiceOption, check_options
 
 DEFAULT_DATASET_DIR = Path(__file__).parent.parent.parent.parent / "eval" / "dataset" / "v1"
@@ -95,11 +96,37 @@ def _check_no_secrets(raw_text: str, source: Path) -> None:
         )
 
 
-def load_dataset(directory: Path | None = None) -> list[DatasetExample]:
-    """Load and validate every example in ``directory``, rejecting id conflicts."""
+def _check_label_against_profile(
+    example: DatasetExample, registry: ProfileRegistry, source: Path
+) -> None:
+    if example.profile is None or example.label is None or example.label.correct_option_id is None:
+        return
+    try:
+        profile = registry.get(example.profile)
+    except ProfileError as exc:
+        raise DatasetError(f"{source}: {exc}") from exc
+    declared = {opt.id for opt in profile.options}
+    if example.label.correct_option_id not in declared:
+        raise DatasetError(
+            f"{source}: label.correct_option_id {example.label.correct_option_id!r} "
+            f"not among profile {example.profile!r}'s declared options {sorted(declared)}"
+        )
+
+
+def load_dataset(
+    directory: Path | None = None, *, registry: ProfileRegistry | None = None
+) -> list[DatasetExample]:
+    """Load and validate every example in ``directory``, rejecting id conflicts.
+
+    ``registry`` defaults to the installed profile registry and is used to
+    check a profile-based example's label against that profile's actual
+    option ids (dynamic examples validate this against their own embedded
+    options directly, in the model itself).
+    """
     directory = directory or DEFAULT_DATASET_DIR
     if not directory.is_dir():
         return []
+    registry = registry if registry is not None else load_registry()
 
     examples: dict[str, DatasetExample] = {}
     for path in sorted(directory.glob("*.yaml")):
@@ -114,6 +141,7 @@ def load_dataset(directory: Path | None = None) -> list[DatasetExample]:
             raise DatasetError(f"invalid dataset example in {path}: {exc}") from exc
         if example.id in examples:
             raise DatasetError(f"duplicate example id {example.id!r} (seen again in {path})")
+        _check_label_against_profile(example, registry, path)
         examples[example.id] = example
 
     return sorted(examples.values(), key=lambda e: e.id)

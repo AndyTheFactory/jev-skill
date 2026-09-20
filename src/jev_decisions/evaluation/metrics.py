@@ -11,6 +11,7 @@ own probability.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -43,10 +44,10 @@ class ProfileMetrics(BaseModel):
 
     n: int
     n_labeled: int
-    coverage: float
-    abstention_rate: float
-    rejected_rate: float
-    failed_rate: float
+    coverage: Metric
+    abstention_rate: Metric
+    rejected_rate: Metric
+    failed_rate: Metric
     accuracy: Metric
     accuracy_n: int
     mean_selected_probability: Metric
@@ -127,13 +128,16 @@ def _aggregate(records: list[_Record]) -> ProfileMetrics:
         for r in calib_records
     ]
 
+    def _mentions_option(record: _Record) -> bool:
+        assert record.baseline is not None and record.decision.selected_option_id is not None
+        pattern = r"\b" + re.escape(record.decision.selected_option_id.lower()) + r"\b"
+        return re.search(pattern, record.baseline.action.lower()) is not None
+
     baseline_eligible = [r for r in accepted if r.baseline is not None]
     baseline_agree = [
         r
         for r in baseline_eligible
-        if r.decision.selected_option_id is not None
-        and r.baseline is not None
-        and r.decision.selected_option_id.lower() in r.baseline.action.lower()
+        if r.decision.selected_option_id is not None and _mentions_option(r)
     ]
 
     latencies = [r.telemetry.latency_ms for r in records if r.telemetry is not None]
@@ -143,13 +147,16 @@ def _aggregate(records: list[_Record]) -> ProfileMetrics:
         if r.telemetry is not None and r.telemetry.cost is not None
     ]
 
+    def _rate(count: int) -> Metric:
+        return count / n if n else NOT_AVAILABLE
+
     return ProfileMetrics(
         n=n,
         n_labeled=len(labeled),
-        coverage=len(accepted) / n if n else 0.0,
-        abstention_rate=len(abstained) / n if n else 0.0,
-        rejected_rate=len(rejected) / n if n else 0.0,
-        failed_rate=len(failed) / n if n else 0.0,
+        coverage=_rate(len(accepted)),
+        abstention_rate=_rate(len(abstained)),
+        rejected_rate=_rate(len(rejected)),
+        failed_rate=_rate(len(failed)),
         accuracy=accuracy,
         accuracy_n=len(labeled_accepted),
         mean_selected_probability=_mean(probs),
@@ -161,7 +168,7 @@ def _aggregate(records: list[_Record]) -> ProfileMetrics:
         ),
         baseline_agreement_n=len(baseline_eligible),
         mean_latency_ms=_mean(latencies),
-        mean_cost=_mean(costs) if costs else NOT_AVAILABLE,
+        mean_cost=_mean(costs),
     )
 
 
@@ -185,7 +192,7 @@ def build_report(
             continue
         try:
             decision = store.load(entry.record_id, directory=store_dir)
-        except store.RecordNotFoundError:
+        except (store.RecordNotFoundError, store.InvalidRecordIdError):
             missing.append(entry.example_id)
             continue
         baseline = baseline_module.load_protected(entry.record_id, directory=baseline_dir)
