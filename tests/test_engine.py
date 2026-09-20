@@ -186,6 +186,48 @@ def test_repeated_identical_request_reuses_cache_one_provider_call(
     assert first.record_id != second.record_id  # unique correlation id per call
 
 
+def test_rejected_outcome_not_cached_retries_provider(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = {"n": 0}
+
+    class _InconsistentAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            call_count["n"] += 1
+            # selected_option_id disagrees with the top-probability option:
+            # policy.evaluate treats this as "rejected", not a stable verdict.
+            return ProviderChoiceResponse.model_construct(
+                selected_option_id="b", probabilities={"a": 0.9, "b": 0.1}, confidence=None
+            )
+
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _InconsistentAdapter())
+    first = engine.run_shadow(config, request_)
+    second = engine.run_shadow(config, request_)
+
+    assert first.outcome == second.outcome == "rejected"
+    assert call_count["n"] == 2
+
+
+def test_different_abstain_option_ids_are_not_conflated_in_cache(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = {"n": 0}
+
+    class _CountingAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            call_count["n"] += 1
+            return super().decide(request)
+
+    response = ProviderChoiceResponse(selected_option_id="a", probabilities={"a": 0.95, "b": 0.05})
+    monkeypatch.setattr(
+        engine, "OpenRouterAdapter", lambda cfg: _CountingAdapter(response=response)
+    )
+    engine.run_shadow(config, request_, abstain_option_ids=frozenset())
+    engine.run_shadow(config, request_, abstain_option_ids=frozenset({"a"}))
+
+    assert call_count["n"] == 2
+
+
 def test_changed_context_invalidates_cache_new_provider_call(
     config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:

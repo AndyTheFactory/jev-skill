@@ -2,9 +2,10 @@
 
 The fingerprint covers everything that determines whether two requests are
 equivalent for caching purposes: schema version, question, options (order-
-independent), context, profile id, provider model, and policy thresholds.
-Changing any of these changes the fingerprint, so a cached result is never
-reused across incompatible evidence, model or policy configuration.
+independent), context, profile id, provider model, policy thresholds, and
+the resolved abstain-option-id set. Changing any of these changes the
+fingerprint, so a cached result is never reused across incompatible
+evidence, model, policy, or profile-abstention configuration.
 """
 
 from __future__ import annotations
@@ -16,7 +17,12 @@ from jev_decisions.config import JevConfig
 from jev_decisions.schemas import ChoiceRequest
 
 
-def canonical_payload(request: ChoiceRequest, config: JevConfig) -> dict[str, object]:
+def canonical_payload(
+    request: ChoiceRequest,
+    config: JevConfig,
+    *,
+    abstain_option_ids: frozenset[str] = frozenset(),
+) -> dict[str, object]:
     return {
         "schema_version": request.schema_version,
         "question": request.question,
@@ -28,10 +34,16 @@ def canonical_payload(request: ChoiceRequest, config: JevConfig) -> dict[str, ob
         "profile": request.profile,
         "provider_model": config.provider.model,
         "policy": config.policy.model_dump(),
+        "abstain_option_ids": sorted(abstain_option_ids),
     }
 
 
-def compute_fingerprint(request: ChoiceRequest, config: JevConfig) -> str:
-    payload = canonical_payload(request, config)
+def compute_fingerprint(
+    request: ChoiceRequest,
+    config: JevConfig,
+    *,
+    abstain_option_ids: frozenset[str] = frozenset(),
+) -> str:
+    payload = canonical_payload(request, config, abstain_option_ids=abstain_option_ids)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

@@ -10,16 +10,24 @@ completed decision: it's swallowed and the caller proceeds as normal.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import stat
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
 from jev_decisions.config import TelemetryConfig
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX platform
+    fcntl = None  # type: ignore[assignment]
 
 _SECRET_PATTERN = re.compile(
     r"sk-[A-Za-z0-9]{10,}|Bearer\s+\S+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}"
@@ -49,6 +57,21 @@ def _redact(value: str | None) -> str | None:
     return _SECRET_PATTERN.sub("[REDACTED]", value)
 
 
+@contextlib.contextmanager
+def _locked(path: Path) -> Iterator[None]:
+    """Exclusive advisory lock so an append and a prune-rewrite never interleave."""
+    if fcntl is None:  # pragma: no cover - non-POSIX platform: best effort, no lock
+        yield
+        return
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def write_event(config: TelemetryConfig, event: TelemetryEvent) -> None:
     """Append one redacted JSONL line. Never raises: failures are swallowed."""
     if not config.enabled:
@@ -60,7 +83,7 @@ def write_event(config: TelemetryConfig, event: TelemetryEvent) -> None:
         payload["profile"] = _redact(payload["profile"])
         payload["model"] = _redact(payload["model"])
         payload["baseline_task_id"] = _redact(payload["baseline_task_id"])
-        with path.open("a", encoding="utf-8") as fh:
+        with _locked(path), path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(payload) + "\n")
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
@@ -75,22 +98,26 @@ def prune_expired(config: TelemetryConfig, *, now: datetime | None = None) -> in
 
     now = now or datetime.now(UTC)
     cutoff = now - timedelta(days=config.retention_days)
-    kept: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            event = TelemetryEvent.model_validate_json(line)
-        except ValueError:
-            continue  # drop unparsable lines rather than fail retention
-        timestamp = event.timestamp
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=UTC)
-        if timestamp >= cutoff:
-            kept.append(line)
 
-    path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    with _locked(path):
+        kept: list[str] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = TelemetryEvent.model_validate_json(line)
+            except ValueError:
+                continue  # drop unparsable lines rather than fail retention
+            timestamp = event.timestamp
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=UTC)
+            if timestamp >= cutoff:
+                kept.append(line)
+
+        tmp_path = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+        tmp_path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+        tmp_path.replace(path)  # atomic swap under the same lock write_event takes
     return len(kept)
 
 

@@ -59,6 +59,21 @@ def test_eviction_keeps_bounded_entry_count(tmp_path: Path) -> None:
     assert len(remaining) == 5
 
 
+def test_entry_file_permissions_owner_only(tmp_path: Path) -> None:
+    import stat as stat_module
+
+    cache.put("fp1", make_decision(), directory=tmp_path)
+    mode = (tmp_path / "fp1.json").stat().st_mode
+    assert stat_module.S_IMODE(mode) == stat_module.S_IRUSR | stat_module.S_IWUSR
+
+
+def test_eviction_survives_concurrently_deleted_file(tmp_path: Path) -> None:
+    for i in range(5):
+        cache.put(f"fp{i}", make_decision(), directory=tmp_path, max_entries=100)
+    (tmp_path / "fp2.json").unlink()  # simulate a concurrent writer removing it mid-eviction
+    cache.put("fp5", make_decision(), directory=tmp_path, max_entries=3)  # must not raise
+
+
 def test_concurrent_puts_do_not_corrupt_or_crash(tmp_path: Path) -> None:
     errors: list[Exception] = []
 

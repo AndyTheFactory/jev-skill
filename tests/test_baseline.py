@@ -86,6 +86,13 @@ def test_unavailable_baseline_is_a_normal_none(tmp_path: Path) -> None:
     assert load_protected("a" * 32, directory=tmp_path) is None
 
 
+def test_corrupt_protected_baseline_is_a_normal_none_not_a_crash(tmp_path: Path) -> None:
+    record_id = "b" * 32
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / f"{record_id}.json").write_text("{not valid json")
+    assert load_protected(record_id, directory=tmp_path) is None
+
+
 def test_save_and_load_protected_round_trip(tmp_path: Path) -> None:
     baseline = Baseline(action="investigate logs first", recorded_at=datetime.now(UTC))
     record_id = "b" * 32

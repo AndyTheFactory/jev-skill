@@ -88,6 +88,27 @@ def test_prune_removes_events_older_than_retention(tmp_path: Path) -> None:
     assert events[0].timestamp > now - timedelta(days=1)
 
 
+def test_prune_survives_concurrent_append(tmp_path: Path) -> None:
+    import threading
+
+    config = TelemetryConfig(path=str(tmp_path / "telemetry.jsonl"), retention_days=1)
+    now = datetime(2026, 1, 10, tzinfo=UTC)
+    write_event(config, make_event(timestamp=now - timedelta(days=5)))
+
+    def append_during_prune() -> None:
+        write_event(config, make_event(id="c" * 32, timestamp=now))
+
+    t = threading.Thread(target=append_during_prune)
+    t.start()
+    prune_expired(config, now=now)
+    t.join()
+
+    events = read_events(config)
+    # the old event must be gone, and the concurrently appended one must survive
+    assert any(e.id == "c" * 32 for e in events)
+    assert all(e.timestamp > now - timedelta(days=1) for e in events)
+
+
 def test_prune_on_missing_file_is_a_noop(tmp_path: Path) -> None:
     config = TelemetryConfig(path=str(tmp_path / "missing.jsonl"))
     assert prune_expired(config) == 0

@@ -46,3 +46,15 @@ def test_save_rejects_malformed_record_id(tmp_path: Path) -> None:
 def test_record_ids_are_unique() -> None:
     ids = {store.new_record_id() for _ in range(100)}
     assert len(ids) == 100
+
+
+def test_trailing_newline_record_id_rejected(tmp_path: Path) -> None:
+    with pytest.raises(store.InvalidRecordIdError):
+        store.load("a" * 32 + "\n", directory=tmp_path)
+
+
+def test_corrupt_record_file_raises_not_found_not_crash(tmp_path: Path) -> None:
+    record_id = store.new_record_id()
+    (tmp_path / f"{record_id}.json").write_text("{not valid json")
+    with pytest.raises(store.RecordNotFoundError, match="corrupt"):
+        store.load(record_id, directory=tmp_path)

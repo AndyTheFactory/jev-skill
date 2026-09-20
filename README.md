@@ -82,10 +82,14 @@ JSON
 
 Or from a file: `jev decide --input request.json`.
 
-`jev decide` prints a JSON `Decision` to stdout, the outcome to stderr, and
-exits 0 (accepted), 1 (abstained), 2 (failed/provider unavailable), 3
+`jev decide` always runs in shadow mode: it prints only `{record_id,
+outcome, action: {permitted: false}}` to stdout -- never the selected
+option, probability, confidence or reasoning -- plus the outcome to stderr.
+It exits 0 (accepted), 1 (abstained), 2 (failed/provider unavailable), 3
 (rejected/malformed), or 65 (invalid input, e.g. bad JSON or a validation
-error -- fails before any network call).
+error -- fails before any network call). To see the full decision, run
+`jev reveal RECORD_ID` as a separate, explicit step outside the original
+task.
 
 ### Manual decision, starter profile
 

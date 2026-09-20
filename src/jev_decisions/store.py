@@ -17,7 +17,9 @@ from uuid import uuid4
 
 from jev_decisions.policy import Decision
 
-_RECORD_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+# \Z (not a bare $) so a trailing "\n" (e.g. from `$(cat file)`) is rejected
+# instead of silently matching.
+_RECORD_ID_RE = re.compile(r"^[0-9a-f]{32}\Z")
 
 
 def default_store_dir() -> Path:
@@ -47,8 +49,10 @@ def save(decision: Decision, record_id: str, *, directory: Path | None = None) -
     directory = directory if directory is not None else default_store_dir()
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = _path_for(record_id, directory)
-    path.write_text(json.dumps(decision.model_dump(mode="json")))
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    tmp_path = path.with_suffix(f".{uuid4().hex}.tmp")
+    tmp_path.write_text(json.dumps(decision.model_dump(mode="json")))
+    os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+    tmp_path.replace(path)  # atomic: a crash mid-write never leaves a truncated record
 
 
 def load(record_id: str, *, directory: Path | None = None) -> Decision:
@@ -56,4 +60,9 @@ def load(record_id: str, *, directory: Path | None = None) -> Decision:
     path = _path_for(record_id, directory)
     if not path.is_file():
         raise RecordNotFoundError(f"no protected result for record id {record_id!r}")
-    return Decision.model_validate(json.loads(path.read_text()))
+    try:
+        return Decision.model_validate(json.loads(path.read_text()))
+    except (ValueError, OSError) as exc:
+        raise RecordNotFoundError(
+            f"protected result for record id {record_id!r} is corrupt: {exc}"
+        ) from None

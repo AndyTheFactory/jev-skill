@@ -8,10 +8,17 @@ budget-limited.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX platform
+    fcntl = None  # type: ignore[assignment]
 
 DEFAULT_MAX_CALLS_PER_WINDOW = 20
 DEFAULT_WINDOW_SECONDS = 3600
@@ -31,6 +38,24 @@ def _key_path(task_id: str, directory: Path) -> Path:
     return directory / f"{digest}.json"
 
 
+@contextlib.contextmanager
+def _locked(lock_path: Path) -> Iterator[None]:
+    """Exclusive advisory lock around the read-check-write critical section.
+
+    Without this, two concurrent callers for the same task id can each read
+    the count before either writes, and both pass the budget check.
+    """
+    if fcntl is None:  # pragma: no cover - non-POSIX platform: best effort, no lock
+        yield
+        return
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def check_and_increment(
     task_id: str,
     *,
@@ -45,20 +70,23 @@ def check_and_increment(
     path = _key_path(task_id, directory)
     now = now or datetime.now(UTC)
 
-    timestamps: list[datetime] = []
-    if path.is_file():
-        try:
-            timestamps = [datetime.fromisoformat(t) for t in json.loads(path.read_text())]
-        except (ValueError, OSError):
-            timestamps = []
+    with _locked(path.with_suffix(".lock")):
+        timestamps: list[datetime] = []
+        if path.is_file():
+            try:
+                timestamps = [
+                    datetime.fromisoformat(t) for t in json.loads(path.read_text())
+                ]
+            except (ValueError, OSError, TypeError):
+                timestamps = []  # corrupt/unexpected content: treat as no prior calls
 
-    window_start = now - timedelta(seconds=window_seconds)
-    timestamps = [t for t in timestamps if t >= window_start]
+        window_start = now - timedelta(seconds=window_seconds)
+        timestamps = [t for t in timestamps if t >= window_start]
 
-    if len(timestamps) >= max_calls:
-        raise BudgetExceededError(
-            f"task {task_id!r} exceeded {max_calls} Jev calls within {window_seconds}s"
-        )
+        if len(timestamps) >= max_calls:
+            raise BudgetExceededError(
+                f"task {task_id!r} exceeded {max_calls} Jev calls within {window_seconds}s"
+            )
 
-    timestamps.append(now)
-    path.write_text(json.dumps([t.isoformat() for t in timestamps]))
+        timestamps.append(now)
+        path.write_text(json.dumps([t.isoformat() for t in timestamps]))

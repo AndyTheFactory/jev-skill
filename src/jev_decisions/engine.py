@@ -6,6 +6,12 @@ only a :class:`ShadowResult` -- record id, outcome, and
 ``action.permitted=False`` -- never the selected option, probability,
 confidence or reasoning. Those are only readable back via `jev reveal`,
 outside the original task.
+
+``config.execution.mode``/``active_profiles`` are read (recorded into
+telemetry, reported by `jev doctor`) but not yet branched on here: every
+call is shadow-only regardless of mode. Active-mode surfacing, gated
+per-profile, is M4's job (see issues #19/#20) -- this is expected for M2,
+not a bug.
 """
 
 from __future__ import annotations
@@ -59,17 +65,20 @@ def run_shadow(
     the provider is called, so it is always recorded independently of
     whatever Jev returns. An equivalent, unexpired, previously cached
     decision (same fingerprint: schema/question/options/context/profile/
-    model/policy) is reused instead of calling the provider again -- each
-    call still gets its own fresh record id. When ``baseline.task_id`` is
-    set, actual provider calls (not cache hits) for that task are capped
-    per rolling window; over budget fails closed the same as a provider
-    error, never as an authorization to act.
+    model/policy/abstain-option-ids) is reused instead of calling the
+    provider again -- each call still gets its own fresh record id. Only
+    "accepted"/"abstained" outcomes are cached; "failed" and "rejected" are
+    one-off anomalies (transient error, internally-inconsistent response)
+    that deserve a fresh attempt next time, not a stale cached verdict. When
+    ``baseline.task_id`` is set, actual provider calls (not cache hits) for
+    that task are capped per rolling window; over budget fails closed the
+    same as a provider error, never as an authorization to act.
     """
     record_id = store.new_record_id()
     if baseline is not None:
         baseline_module.save_protected(baseline, record_id)
 
-    fingerprint = compute_fingerprint(request, config)
+    fingerprint = compute_fingerprint(request, config, abstain_option_ids=abstain_option_ids)
     started = time.monotonic()
     decision = cache_module.get(fingerprint)
     if decision is None:
@@ -98,7 +107,7 @@ def run_shadow(
                     config=config.policy,
                     abstain_option_ids=abstain_option_ids,
                 )
-        if decision.outcome not in ("failed",):
+        if decision.outcome in ("accepted", "abstained"):
             cache_module.put(fingerprint, decision)
     latency_ms = (time.monotonic() - started) * 1000
 

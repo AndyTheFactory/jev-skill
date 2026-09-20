@@ -45,3 +45,43 @@ def test_corrupt_budget_file_treated_as_empty(tmp_path: Path) -> None:
     digest = hashlib.sha256(b"task-1").hexdigest()
     (tmp_path / f"{digest}.json").write_text("not json")
     check_and_increment("task-1", directory=tmp_path, max_calls=1)  # does not crash
+
+
+def test_wrong_element_type_treated_as_empty_not_typeerror(tmp_path: Path) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    import hashlib
+    import json
+
+    digest = hashlib.sha256(b"task-1").hexdigest()
+    (tmp_path / f"{digest}.json").write_text(json.dumps([123, None]))
+    check_and_increment("task-1", directory=tmp_path, max_calls=1)  # does not raise TypeError
+
+
+def test_concurrent_increments_never_exceed_budget(tmp_path: Path) -> None:
+    import threading
+
+    max_calls = 10
+    accepted: list[bool] = []
+    errors: list[Exception] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        try:
+            check_and_increment("task-race", directory=tmp_path, max_calls=max_calls)
+        except BudgetExceededError:
+            return
+        except Exception as exc:  # pragma: no cover - failure path
+            with lock:
+                errors.append(exc)
+            return
+        with lock:
+            accepted.append(True)
+
+    threads = [threading.Thread(target=worker) for _ in range(30)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    assert len(accepted) == max_calls  # never more than the budget, despite 30 racing callers

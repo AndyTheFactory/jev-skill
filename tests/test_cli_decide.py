@@ -208,6 +208,18 @@ def test_reveal_unknown_record_id_exit_65(capsys: pytest.CaptureFixture[str]) ->
     assert code == cli.EX_DATAERR
 
 
+def test_reveal_corrupt_record_exit_65_not_crash(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    record_id = "1" * 32
+    shadow_dir = tmp_path / ".jev" / "shadow"
+    shadow_dir.mkdir(parents=True)
+    (shadow_dir / f"{record_id}.json").write_text("{not valid json")
+    code = cli.main(["reveal", record_id])
+    assert code == cli.EX_DATAERR
+    assert "corrupt" in capsys.readouterr().err
+
+
 def test_reveal_rejects_path_traversal(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(["reveal", "../../../../etc/passwd"])
     assert code == cli.EX_DATAERR

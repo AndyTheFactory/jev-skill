@@ -7,6 +7,8 @@ never observe a partially written entry.
 
 from __future__ import annotations
 
+import os
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -74,13 +76,20 @@ def put(
     path = directory / f"{fingerprint}.json"
     tmp_path = directory / f".{fingerprint}.{uuid4().hex}.tmp"
     tmp_path.write_text(entry.model_dump_json())
+    os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
     tmp_path.replace(path)  # atomic on POSIX: concurrent writers never see a partial file
 
     _evict_oldest_if_over_capacity(directory, max_entries)
 
 
 def _evict_oldest_if_over_capacity(directory: Path, max_entries: int) -> None:
-    files = sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime)
-    excess = len(files) - max_entries
-    for stale in files[: max(0, excess)]:
+    dated: list[tuple[float, Path]] = []
+    for candidate in directory.glob("*.json"):
+        try:
+            dated.append((candidate.stat().st_mtime, candidate))
+        except FileNotFoundError:
+            continue  # a concurrent writer already removed it; nothing to evict here
+    dated.sort(key=lambda pair: pair[0])
+    excess = len(dated) - max_entries
+    for _mtime, stale in dated[: max(0, excess)]:
         stale.unlink(missing_ok=True)

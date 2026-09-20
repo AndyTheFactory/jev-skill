@@ -68,3 +68,19 @@ def test_policy_change_invalidates_fingerprint(config: JevConfig, request_: Choi
 def test_profile_change_invalidates_fingerprint(config: JevConfig, request_: ChoiceRequest) -> None:
     with_profile = request_.model_copy(update={"profile": "task-routing"})
     assert compute_fingerprint(request_, config) != compute_fingerprint(with_profile, config)
+
+
+def test_abstain_option_ids_change_invalidates_fingerprint(
+    config: JevConfig, request_: ChoiceRequest
+) -> None:
+    without = compute_fingerprint(request_, config)
+    with_abstain = compute_fingerprint(request_, config, abstain_option_ids=frozenset({"a"}))
+    assert without != with_abstain
+
+
+def test_abstain_option_ids_order_does_not_affect_fingerprint(
+    config: JevConfig, request_: ChoiceRequest
+) -> None:
+    a = compute_fingerprint(request_, config, abstain_option_ids=frozenset({"a", "b"}))
+    b = compute_fingerprint(request_, config, abstain_option_ids=frozenset({"b", "a"}))
+    assert a == b

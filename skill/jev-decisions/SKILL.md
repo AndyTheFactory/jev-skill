@@ -98,11 +98,14 @@ JSON
 
 ### Reading the result
 
-`jev decide` prints a JSON `Decision` to stdout and the outcome to stderr,
-and exits with a code you can branch on (0 accepted, 1 abstained, 2 failed,
-3 rejected). Treat anything other than `accepted` as "no usable signal" and
-proceed on your own judgment; treat `accepted` as, at most, one input to
-weigh alongside everything else you know about the task.
+`jev decide` prints only `{record_id, outcome, action: {permitted: false}}`
+to stdout -- never the selected option or probability -- and the outcome to
+stderr, exiting with a code you can branch on (0 accepted, 1 abstained, 2
+failed, 3 rejected). Treat anything other than `accepted` as "no usable
+signal" and proceed on your own judgment; treat `accepted` as, at most, one
+input to weigh alongside everything else you know about the task. You are
+not expected to reveal or read the actual selected option -- shadow mode
+exists precisely so it doesn't bias your reasoning.
 
 ### Diagnosing problems
 
