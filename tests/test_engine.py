@@ -46,9 +46,11 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def config(monkeypatch: pytest.MonkeyPatch) -> JevConfig:
+def config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> JevConfig:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    return JevConfig()
+    cfg = JevConfig()
+    cfg.telemetry.path = str(tmp_path / "telemetry.jsonl")
+    return cfg
 
 
 @pytest.fixture
@@ -221,6 +223,38 @@ def test_failed_outcome_not_cached_retries_provider(
     engine.run_shadow(config, request_)
 
     assert call_count["n"] == 2
+
+
+def test_run_shadow_emits_telemetry_event(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config.telemetry.path = str(tmp_path / "telemetry.jsonl")
+    response = ProviderChoiceResponse(selected_option_id="a", probabilities={"a": 0.95, "b": 0.05})
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=response))
+    result = engine.run_shadow(config, request_)
+
+    from jev_decisions.telemetry import read_events
+
+    events = read_events(config.telemetry)
+    assert len(events) == 1
+    assert events[0].id == result.record_id
+    assert events[0].outcome == "accepted"
+
+
+def test_telemetry_write_failure_does_not_break_decide(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = ProviderChoiceResponse(selected_option_id="a", probabilities={"a": 0.95, "b": 0.05})
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=response))
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("disk is on fire")
+
+    from jev_decisions import telemetry
+
+    monkeypatch.setattr(telemetry, "write_event", _boom)
+    result = engine.run_shadow(config, request_)  # must not raise
+    assert result.outcome == "accepted"
 
 
 def test_each_call_gets_a_fresh_record_id(

@@ -10,11 +10,15 @@ outside the original task.
 
 from __future__ import annotations
 
+import time
+from datetime import UTC, datetime
+
 from pydantic import BaseModel, ConfigDict
 
 from jev_decisions import baseline as baseline_module
 from jev_decisions import cache as cache_module
 from jev_decisions import store
+from jev_decisions import telemetry as telemetry_module
 from jev_decisions.baseline import Baseline
 from jev_decisions.config import JevConfig
 from jev_decisions.fingerprint import compute_fingerprint
@@ -60,6 +64,7 @@ def run_shadow(
         baseline_module.save_protected(baseline, record_id)
 
     fingerprint = compute_fingerprint(request, config)
+    started = time.monotonic()
     decision = cache_module.get(fingerprint)
     if decision is None:
         try:
@@ -73,6 +78,24 @@ def run_shadow(
             )
         if decision.outcome not in ("failed",):
             cache_module.put(fingerprint, decision)
+    latency_ms = (time.monotonic() - started) * 1000
 
     store.save(decision, record_id)
+    try:
+        telemetry_module.write_event(
+            config.telemetry,
+            telemetry_module.TelemetryEvent(
+                id=record_id,
+                fingerprint=fingerprint,
+                timestamp=datetime.now(UTC),
+                profile=request.profile,
+                model=config.provider.model,
+                mode=config.execution.mode,
+                outcome=decision.outcome,
+                latency_ms=latency_ms,
+                baseline_task_id=baseline.task_id if baseline is not None else None,
+            ),
+        )
+    except Exception:  # telemetry must never break a completed decision
+        pass
     return ShadowResult(record_id=record_id, outcome=decision.outcome)
