@@ -18,6 +18,14 @@ def test_example_config_matches_real_schema() -> None:
     assert config.provider.model == "~typesafe/jev-latest"
 
 
+def test_benchmark_runbook_documents_active_mode_gate() -> None:
+    text = (REPO_ROOT / "eval" / "BENCHMARK.md").read_text()
+    assert "scripts/run_benchmark.py" in text
+    assert "jev evaluate" in text
+    assert "Sample size" in text
+    assert "stays there unless" in text or "remains disabled" in text.lower()
+
+
 def test_readme_documents_key_commands() -> None:
     text = (REPO_ROOT / "README.md").read_text()
     for snippet in (
