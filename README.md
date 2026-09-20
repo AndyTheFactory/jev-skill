@@ -52,7 +52,29 @@ wins): CLI overrides > environment (`JEV_*`) > project file (`./.jev.yaml`)
 Execution defaults to `shadow` mode and stays there unless you explicitly
 opt in at the user-config or environment level -- a project-committed
 `.jev.yaml` cannot enable `active` mode, since project files may be
-untrusted repository content.
+untrusted repository content. The same restriction applies to
+`execution.active_profiles`: a project file cannot list a profile there
+either, even if a trusted layer has separately enabled `active` mode --
+otherwise a project file could widen which profiles act without ever being
+trusted to turn active mode on.
+
+### Active mode (opt-in, per profile)
+
+```yaml
+# ~/.jev/config.yaml (or set via JEV_EXECUTION_MODE / JEV_EXECUTION_ACTIVE_PROFILES)
+execution:
+  mode: active
+  active_profiles: [task-routing]
+```
+
+Only for a request using an explicitly listed profile, and only on an
+`accepted` outcome, `jev decide` additionally includes `selected_option_id`
+and `probability` in its output. `action.permitted` is still always
+`false` -- this makes the recommendation visible as one more input for
+Claude's own reasoning, never an authorization. Every other case (shadow
+mode, a profile not listed, or any non-`accepted` outcome) is unaffected
+and behaves exactly as documented above. See `eval/BENCHMARK.md` for the
+evidence a profile should have behind it before this is turned on.
 
 ## Usage
 

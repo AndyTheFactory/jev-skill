@@ -107,6 +107,15 @@ input to weigh alongside everything else you know about the task. You are
 not expected to reveal or read the actual selected option -- shadow mode
 exists precisely so it doesn't bias your reasoning.
 
+**Active mode (opt-in, per profile).** An operator can explicitly configure
+a specific profile to also expose `selected_option_id`/`probability` for an
+`accepted` outcome (see `README.md` for the config). `action.permitted` is
+still always `false` even then -- ground rule 2 above applies exactly the
+same way: the visible recommendation is one more input to weigh, never
+something that authorizes a destructive action, a deployment, a credential
+use, or anything else your permission settings or the user's explicit
+instructions would otherwise block.
+
 ### Diagnosing problems
 
 ```bash
