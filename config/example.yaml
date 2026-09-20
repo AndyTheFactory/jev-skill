@@ -1,0 +1,11 @@
+# Illustrative only. The configuration loader is implemented in issue #2.
+schema_version: "1.0"
+provider:
+  name: openrouter
+  model: "~typesafe/jev-latest"
+  timeout_seconds: 10
+execution:
+  mode: shadow
+telemetry:
+  enabled: true
+  include_context: false
