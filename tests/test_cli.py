@@ -5,19 +5,18 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+from _pytest.capture import CaptureFixture
+
 from jev_decisions import __version__
 from jev_decisions.cli import main
 
 
-def test_help(capsys: object) -> None:
-    # capsys is a pytest fixture; the annotation keeps this test dependency-free at runtime.
-    from typing import cast
-
-    from _pytest.capture import CaptureFixture
-
-    capture = cast(CaptureFixture[str], capsys)
-    assert main(["--help"]) == 0  # argparse exits before returning
-    assert "usage: jev" in capture.readouterr().out
+def test_help(capsys: CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "usage: jev" in capsys.readouterr().out
 
 
 def test_version() -> None:
