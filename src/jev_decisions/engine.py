@@ -16,15 +16,18 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict
 
 from jev_decisions import baseline as baseline_module
+from jev_decisions import budget as budget_module
 from jev_decisions import cache as cache_module
 from jev_decisions import store
 from jev_decisions import telemetry as telemetry_module
 from jev_decisions.baseline import Baseline
+from jev_decisions.budget import BudgetExceededError
 from jev_decisions.config import JevConfig
 from jev_decisions.fingerprint import compute_fingerprint
 from jev_decisions.policy import DecisionOutcome, evaluate
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceRequest
+from jev_decisions.schemas import DecisionError as _DecisionError
 
 
 class ActionPermission(BaseModel):
@@ -57,7 +60,10 @@ def run_shadow(
     whatever Jev returns. An equivalent, unexpired, previously cached
     decision (same fingerprint: schema/question/options/context/profile/
     model/policy) is reused instead of calling the provider again -- each
-    call still gets its own fresh record id.
+    call still gets its own fresh record id. When ``baseline.task_id`` is
+    set, actual provider calls (not cache hits) for that task are capped
+    per rolling window; over budget fails closed the same as a provider
+    error, never as an authorization to act.
     """
     record_id = store.new_record_id()
     if baseline is not None:
@@ -67,15 +73,31 @@ def run_shadow(
     started = time.monotonic()
     decision = cache_module.get(fingerprint)
     if decision is None:
-        try:
-            with OpenRouterAdapter(config) as adapter:
-                response = adapter.decide(request)
-        except ProviderError as exc:
-            decision = evaluate(request, None, error=exc, config=config.policy)
+        task_id = baseline.task_id if baseline is not None else None
+        budget_error: ProviderError | None = None
+        if task_id is not None:
+            try:
+                budget_module.check_and_increment(task_id)
+            except BudgetExceededError as exc:
+                budget_error = ProviderError(
+                    _DecisionError(code="unavailable", message=str(exc))
+                )
+
+        if budget_error is not None:
+            decision = evaluate(request, None, error=budget_error, config=config.policy)
         else:
-            decision = evaluate(
-                request, response, config=config.policy, abstain_option_ids=abstain_option_ids
-            )
+            try:
+                with OpenRouterAdapter(config) as adapter:
+                    response = adapter.decide(request)
+            except ProviderError as exc:
+                decision = evaluate(request, None, error=exc, config=config.policy)
+            else:
+                decision = evaluate(
+                    request,
+                    response,
+                    config=config.policy,
+                    abstain_option_ids=abstain_option_ids,
+                )
         if decision.outcome not in ("failed",):
             cache_module.put(fingerprint, decision)
     latency_ms = (time.monotonic() - started) * 1000
