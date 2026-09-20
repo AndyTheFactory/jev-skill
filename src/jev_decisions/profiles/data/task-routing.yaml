@@ -1,0 +1,22 @@
+id: task-routing
+version: "1.0"
+description: >
+  Route a described unit of work to the agent/skill category best suited to
+  handle it, when several plausible categories exist and the choice is not
+  already implied by an explicit user instruction.
+question: >
+  Given the task description, which category of work does it primarily
+  belong to?
+options:
+  - id: coding
+    description: Writing, editing or refactoring source code.
+  - id: debugging
+    description: Diagnosing or fixing a reported bug or failure.
+  - id: research
+    description: Open-ended investigation, reading, or information gathering.
+  - id: operational
+    description: Running, configuring or maintaining infrastructure/tooling.
+abstain_option_ids: []
+fallback: >
+  If not accepted, continue with Claude's own judgment of task category;
+  do not block or delay the task on this classification.

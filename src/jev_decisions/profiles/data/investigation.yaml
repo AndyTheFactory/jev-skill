@@ -1,0 +1,21 @@
+id: investigation
+version: "1.0"
+description: >
+  Decide the next investigative step when debugging or exploring a codebase
+  and multiple plausible next actions exist.
+question: >
+  What is the most promising next investigative step?
+options:
+  - id: reproduce
+    description: Reproduce the reported behavior before anything else.
+  - id: read-logs
+    description: Inspect existing logs, traces or error output first.
+  - id: read-code
+    description: Read the relevant source to build a hypothesis before running anything.
+  - id: insufficient_context
+    description: Not enough information yet to prefer one investigative step over another.
+abstain_option_ids:
+  - insufficient_context
+fallback: >
+  If not accepted, fall back to Claude's own systematic-debugging judgment;
+  this profile never substitutes for verifying the actual root cause.

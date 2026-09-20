@@ -1,0 +1,22 @@
+id: workflow-selection
+version: "1.0"
+description: >
+  Pick which development workflow best fits a piece of work already known
+  to be a coding task, when the appropriate process is not obvious from the
+  request.
+question: >
+  Which workflow should this piece of work follow?
+options:
+  - id: tdd
+    description: Write a failing test first, then implement to pass it.
+  - id: direct-implementation
+    description: Implement directly; a small, well-understood, low-risk change.
+  - id: plan-first
+    description: Write a step-by-step implementation plan before any code changes.
+  - id: insufficient_context
+    description: Not enough information in the task description to choose a workflow.
+abstain_option_ids:
+  - insufficient_context
+fallback: >
+  If not accepted, default to Claude's own workflow judgment for the task;
+  never skip tests or planning steps the user explicitly requested.

@@ -1,11 +1,28 @@
-# Illustrative only. The configuration loader is implemented in issue #2.
+# Example ~/.jev/config.yaml or ./.jev.yaml. Every field is optional; only
+# override what you need to change from the defaults shown here.
+#
+# Credentials are never read from this file: set OPENROUTER_API_KEY in the
+# environment instead.
+#
+# NOTE: execution.mode: active is rejected when set from a project-level
+# file (./.jev.yaml) -- only ~/.jev/config.yaml, the JEV_EXECUTION_MODE
+# environment variable, or an explicit CLI override may enable it.
 schema_version: "1.0"
 provider:
   name: openrouter
   model: "~typesafe/jev-latest"
   timeout_seconds: 10
+  max_retries: 2
+  api_key_env: OPENROUTER_API_KEY
 execution:
-  mode: shadow
+  mode: shadow          # shadow (default) | active
+  active_profiles: []
 telemetry:
   enabled: true
   include_context: false
+  retention_days: 30
+  path: "~/.jev/telemetry.jsonl"
+policy:
+  min_probability: 0.80   # provisional, not calibrated
+  margin: 0.20
+  min_confidence: 0.70
