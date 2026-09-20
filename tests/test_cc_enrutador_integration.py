@@ -67,6 +67,27 @@ def test_malformed_candidate_action_raises_router_state_error() -> None:
         map_router_state_to_choice_request(malformed)  # type: ignore[arg-type]
 
 
+def test_empty_candidate_id_raises_router_state_error_not_validation_error() -> None:
+    state: RouterState = {
+        "current_step": "Which?",
+        "candidate_actions": [
+            {"id": "", "description": "x"},  # ChoiceOption requires min_length=1
+            {"id": "b", "description": "B"},
+        ],
+    }
+    with pytest.raises(RouterStateError):
+        map_router_state_to_choice_request(state)
+
+
+def test_too_few_candidate_actions_raises_router_state_error() -> None:
+    state: RouterState = {
+        "current_step": "Which?",
+        "candidate_actions": [{"id": "a", "description": "A"}],  # ChoiceRequest needs >= 2
+    }
+    with pytest.raises(RouterStateError):
+        map_router_state_to_choice_request(state)
+
+
 def test_profile_can_be_attached() -> None:
     state: RouterState = {
         "current_step": "Which?",

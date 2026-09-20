@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from pydantic import ValidationError
+
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest
 
 
@@ -54,7 +56,7 @@ def map_router_state_to_choice_request(
         options = tuple(
             ChoiceOption(id=c["id"], description=c["description"]) for c in candidates
         )
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, ValidationError) as exc:
         raise RouterStateError(f"malformed candidate_actions: {exc}") from exc
 
     question = state.get("current_step") or "Which candidate action fits best?"
@@ -64,7 +66,7 @@ def map_router_state_to_choice_request(
         return ChoiceRequest(
             question=question, options=options, context=context, profile=profile
         )
-    except Exception as exc:
+    except ValidationError as exc:
         raise RouterStateError(
             f"router state did not map to a valid Choice request: {exc}"
         ) from exc

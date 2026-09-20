@@ -115,7 +115,15 @@ def test_clean_wheel_install_smoke(tmp_path: Path) -> None:
     """
     dist_dir = tmp_path / "dist"
     build = subprocess.run(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(dist_dir)],
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--wheel",
+            "--no-isolation",  # reuse this env's already-installed setuptools; no network
+            "--outdir",
+            str(dist_dir),
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
