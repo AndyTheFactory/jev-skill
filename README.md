@@ -175,4 +175,6 @@ GitHub Actions runs the same checks on Python 3.11, 3.12 and 3.13.
 - `tests/`: unit and CLI tests, run with mocked provider transport (no
   network access required).
 - `config/example.yaml`: annotated example of every config field.
+- `docs/public-api.md`: the stable public Python API, versioning/migration
+  policy, and a from-a-built-wheel install example.
 - `.github/workflows/ci.yml`: Python checks.
