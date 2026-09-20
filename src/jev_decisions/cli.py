@@ -1,4 +1,4 @@
-"""``jev`` command-line interface: ``decide`` and ``doctor``.
+"""``jev`` command-line interface: ``decide``, ``reveal``, ``doctor``, ``profile``.
 
 JSON results go to stdout; diagnostics and errors go to stderr. Exit codes:
 
@@ -8,6 +8,11 @@ JSON results go to stdout; diagnostics and errors go to stderr. Exit codes:
 - 3: "rejected" (malformed/untrusted response)
 - 2: CLI usage error (argparse default, e.g. missing --input/--stdin)
 - 65: invalid input data (fails validation before any network call)
+
+``decide`` always runs in shadow mode: it prints only a record id, outcome
+and ``action.permitted=false`` -- never the selected option or probability.
+Use ``jev reveal RECORD_ID`` as a separate, explicit step to see the full
+protected decision.
 """
 
 from __future__ import annotations
@@ -20,9 +25,9 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from jev_decisions import __version__
-from jev_decisions.config import ConfigError, JevConfig, load_config
-from jev_decisions.policy import Decision, evaluate
+from jev_decisions import __version__, store
+from jev_decisions.config import ConfigError, load_config
+from jev_decisions.engine import run_shadow
 from jev_decisions.profiles import ProfileError, load_registry
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest
@@ -45,6 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
     source = decide.add_mutually_exclusive_group(required=True)
     source.add_argument("--input", metavar="FILE", help="Path to a JSON Choice request.")
     source.add_argument("--stdin", action="store_true", help="Read the JSON request from stdin.")
+
+    reveal = subparsers.add_parser(
+        "reveal", help="Explicitly reveal a protected shadow decision, outside the original task."
+    )
+    reveal.add_argument("record_id")
 
     subparsers.add_parser("doctor", help="Diagnose configuration and dependencies.")
     doctor_check = subparsers.choices["doctor"]
@@ -121,23 +131,20 @@ def cmd_decide(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EX_DATAERR
 
-    decision = _run_decision(config, request, abstain_option_ids=abstain_option_ids)
-    print(json.dumps(decision.model_dump(), indent=2))
-    print(f"outcome={decision.outcome}", file=sys.stderr)
-    return EXIT_BY_OUTCOME[decision.outcome]
+    result = run_shadow(config, request, abstain_option_ids=abstain_option_ids)
+    print(json.dumps(result.model_dump(), indent=2))
+    print(f"outcome={result.outcome}", file=sys.stderr)
+    return EXIT_BY_OUTCOME[result.outcome]
 
 
-def _run_decision(
-    config: JevConfig, request: ChoiceRequest, *, abstain_option_ids: frozenset[str] = frozenset()
-) -> Decision:
+def cmd_reveal(args: argparse.Namespace) -> int:
     try:
-        with OpenRouterAdapter(config) as adapter:
-            response = adapter.decide(request)
-    except ProviderError as exc:
-        return evaluate(request, None, error=exc, config=config.policy)
-    return evaluate(
-        request, response, config=config.policy, abstain_option_ids=abstain_option_ids
-    )
+        decision = store.load(args.record_id)
+    except (store.RecordNotFoundError, store.InvalidRecordIdError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EX_DATAERR
+    print(json.dumps(decision.model_dump(), indent=2))
+    return 0
 
 
 def cmd_profile(args: argparse.Namespace) -> int:
@@ -197,6 +204,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "decide":
         return cmd_decide(args)
+    if args.command == "reveal":
+        return cmd_reveal(args)
     if args.command == "doctor":
         return cmd_doctor(args)
     if args.command == "profile":
