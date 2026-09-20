@@ -1,0 +1,21 @@
+id: review-triage
+version: "1.0"
+description: >
+  Triage a single code review finding by severity, when the finding's
+  severity is not already explicit in review tooling output.
+question: >
+  What severity should this review finding be triaged as?
+options:
+  - id: blocking
+    description: Correctness, security or data-loss defect; must fix before merge.
+  - id: should-fix
+    description: Real defect or clear improvement, but not merge-blocking.
+  - id: nitpick
+    description: Stylistic or minor preference with no functional impact.
+  - id: unknown
+    description: Cannot be classified without more context than is available.
+abstain_option_ids:
+  - unknown
+fallback: >
+  If not accepted, present the finding to the user without a severity label
+  rather than guessing; never auto-dismiss a finding based on this profile.

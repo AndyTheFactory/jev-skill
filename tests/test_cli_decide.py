@@ -165,6 +165,50 @@ def test_doctor_check_provider_failure(
     assert report["provider_connectivity"] == "error: timeout"
 
 
+def test_profile_list(capsys: pytest.CaptureFixture[str]) -> None:
+    code = cli.main(["profile", "list"])
+    assert code == 0
+    ids = json.loads(capsys.readouterr().out)
+    assert "task-routing" in ids
+
+
+def test_profile_show(capsys: pytest.CaptureFixture[str]) -> None:
+    code = cli.main(["profile", "show", "task-routing"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["id"] == "task-routing"
+    assert len(data["options"]) >= 2
+
+
+def test_profile_show_unknown_exit_65(capsys: pytest.CaptureFixture[str]) -> None:
+    code = cli.main(["profile", "show", "does-not-exist"])
+    assert code == cli.EX_DATAERR
+
+
+def test_decide_with_profile_resolves_question_and_options(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: dict[str, ChoiceRequest] = {}
+
+    class _CapturingAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            captured["request"] = request
+            option_ids = [o.id for o in request.options]
+            probs = {oid: 0.0 for oid in option_ids}
+            probs[option_ids[0]] = 1.0
+            return ProviderChoiceResponse(selected_option_id=option_ids[0], probabilities=probs)
+
+    monkeypatch.setattr(cli, "OpenRouterAdapter", lambda config: _CapturingAdapter("accepted"))
+    payload = {"profile": "task-routing", "context": "add a new CLI flag"}
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    code = cli.main(["decide", "--stdin"])
+    assert code in (0, 1)
+    assert captured["request"].question
+    assert len(captured["request"].options) >= 2
+
+
 def test_doctor_check_provider_without_credential(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

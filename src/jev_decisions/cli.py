@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from jev_decisions import __version__
 from jev_decisions.config import ConfigError, JevConfig, load_config
 from jev_decisions.policy import Decision, evaluate
+from jev_decisions.profiles import ProfileError, load_registry
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest
 
@@ -52,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Attempt a live, minimal provider call (requires credentials).",
     )
+
+    profile = subparsers.add_parser("profile", help="Inspect the Choice profile registry.")
+    profile_sub = profile.add_subparsers(dest="profile_command", required=True)
+    profile_sub.add_parser("list", help="List available profiles.")
+    show = profile_sub.add_parser("show", help="Show one profile's definition.")
+    show.add_argument("profile_id")
 
     return parser
 
@@ -83,6 +90,20 @@ def cmd_decide(args: argparse.Namespace) -> int:
         print(f"error: could not read request: {exc}", file=sys.stderr)
         return EX_DATAERR
 
+    abstain_option_ids: frozenset[str] = frozenset()
+    if isinstance(raw, dict) and raw.get("profile") and "options" not in raw:
+        try:
+            resolved = load_registry().get(raw["profile"])
+        except ProfileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EX_DATAERR
+        raw = {
+            **raw,
+            "question": resolved.question,
+            "options": [opt.model_dump() for opt in resolved.options],
+        }
+        abstain_option_ids = resolved.abstain_option_ids
+
     try:
         request = _parse_request(raw)
     except (ValidationError, TypeError, ValueError) as exc:
@@ -95,19 +116,37 @@ def cmd_decide(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EX_DATAERR
 
-    decision = _run_decision(config, request)
+    decision = _run_decision(config, request, abstain_option_ids=abstain_option_ids)
     print(json.dumps(decision.model_dump(), indent=2))
     print(f"outcome={decision.outcome}", file=sys.stderr)
     return EXIT_BY_OUTCOME[decision.outcome]
 
 
-def _run_decision(config: JevConfig, request: ChoiceRequest) -> Decision:
+def _run_decision(
+    config: JevConfig, request: ChoiceRequest, *, abstain_option_ids: frozenset[str] = frozenset()
+) -> Decision:
     try:
         with OpenRouterAdapter(config) as adapter:
             response = adapter.decide(request)
     except ProviderError as exc:
         return evaluate(request, None, error=exc, config=config.policy)
-    return evaluate(request, response, config=config.policy)
+    return evaluate(
+        request, response, config=config.policy, abstain_option_ids=abstain_option_ids
+    )
+
+
+def cmd_profile(args: argparse.Namespace) -> int:
+    registry = load_registry()
+    if args.profile_command == "list":
+        print(json.dumps([p.id for p in registry.list()], indent=2))
+        return 0
+    try:
+        profile = registry.get(args.profile_id)
+    except ProfileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EX_DATAERR
+    print(json.dumps(profile.model_dump(mode="json"), indent=2))
+    return 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -155,6 +194,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_decide(args)
     if args.command == "doctor":
         return cmd_doctor(args)
+    if args.command == "profile":
+        return cmd_profile(args)
 
     parser.print_help()
     return 0
