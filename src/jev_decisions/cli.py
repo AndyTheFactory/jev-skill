@@ -21,11 +21,14 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from jev_decisions import __version__, store
+from jev_decisions.baseline import BaselineError, load_baseline
+from jev_decisions.baseline import load_protected as load_protected_baseline
 from jev_decisions.config import ConfigError, load_config
 from jev_decisions.engine import run_shadow
 from jev_decisions.profiles import ProfileError, load_registry
@@ -50,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     source = decide.add_mutually_exclusive_group(required=True)
     source.add_argument("--input", metavar="FILE", help="Path to a JSON Choice request.")
     source.add_argument("--stdin", action="store_true", help="Read the JSON request from stdin.")
+    decide.add_argument(
+        "--baseline-file",
+        metavar="FILE",
+        help="Path to a JSON baseline (Claude's own action), recorded before this call.",
+    )
 
     reveal = subparsers.add_parser(
         "reveal", help="Explicitly reveal a protected shadow decision, outside the original task."
@@ -131,7 +139,17 @@ def cmd_decide(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EX_DATAERR
 
-    result = run_shadow(config, request, abstain_option_ids=abstain_option_ids)
+    baseline = None
+    if args.baseline_file:
+        try:
+            baseline = load_baseline(Path(args.baseline_file))
+        except BaselineError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EX_DATAERR
+
+    result = run_shadow(
+        config, request, abstain_option_ids=abstain_option_ids, baseline=baseline
+    )
     print(json.dumps(result.model_dump(), indent=2))
     print(f"outcome={result.outcome}", file=sys.stderr)
     return EXIT_BY_OUTCOME[result.outcome]
@@ -143,7 +161,10 @@ def cmd_reveal(args: argparse.Namespace) -> int:
     except (store.RecordNotFoundError, store.InvalidRecordIdError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EX_DATAERR
-    print(json.dumps(decision.model_dump(), indent=2))
+    baseline = load_protected_baseline(args.record_id)
+    output = decision.model_dump()
+    output["baseline"] = baseline.model_dump(mode="json") if baseline else None
+    print(json.dumps(output, indent=2))
     return 0
 
 

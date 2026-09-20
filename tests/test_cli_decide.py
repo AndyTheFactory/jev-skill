@@ -153,6 +153,56 @@ def test_reveal_shows_full_protected_decision(
     assert revealed["probability"] == pytest.approx(0.9)
 
 
+def test_decide_with_baseline_file_shows_in_reveal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
+    req_file = _write_request(tmp_path / "req.json", REQUEST)
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(
+        json.dumps(
+            {
+                "action": "reproduce the bug first",
+                "recorded_at": "2020-01-01T00:00:00Z",
+            }
+        )
+    )
+    code = cli.main(
+        ["decide", "--input", str(req_file), "--baseline-file", str(baseline_file)]
+    )
+    assert code == 0
+    record_id = json.loads(capsys.readouterr().out)["record_id"]
+
+    cli.main(["reveal", record_id])
+    revealed = json.loads(capsys.readouterr().out)
+    assert revealed["baseline"]["action"] == "reproduce the bug first"
+
+
+def test_decide_with_invalid_baseline_file_exit_65(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
+    req_file = _write_request(tmp_path / "req.json", REQUEST)
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(json.dumps({"action": "x", "recorded_at": "2999-01-01T00:00:00Z"}))
+    code = cli.main(
+        ["decide", "--input", str(req_file), "--baseline-file", str(baseline_file)]
+    )
+    assert code == cli.EX_DATAERR
+    assert "future" in capsys.readouterr().err
+
+
+def test_reveal_without_baseline_shows_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
+    req_file = _write_request(tmp_path / "req.json", REQUEST)
+    cli.main(["decide", "--input", str(req_file)])
+    record_id = json.loads(capsys.readouterr().out)["record_id"]
+    cli.main(["reveal", record_id])
+    assert json.loads(capsys.readouterr().out)["baseline"] is None
+
+
 def test_reveal_unknown_record_id_exit_65(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(["reveal", "0" * 32])
     assert code == cli.EX_DATAERR

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from jev_decisions import baseline as baseline_module
 from jev_decisions import engine, store
+from jev_decisions.baseline import Baseline
 from jev_decisions.config import JevConfig
 from jev_decisions.provider.openrouter import ProviderError
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest, DecisionError, ProviderChoiceResponse
@@ -37,6 +40,7 @@ class _StubAdapter:
 @pytest.fixture(autouse=True)
 def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(store, "DEFAULT_STORE_DIR", tmp_path)
+    monkeypatch.setattr(baseline_module, "DEFAULT_BASELINE_DIR", tmp_path / "baseline")
 
 
 @pytest.fixture
@@ -101,6 +105,59 @@ def test_full_decision_recoverable_from_protected_store(
     protected = store.load(result.record_id, directory=tmp_path)
     assert protected.selected_option_id == "b"
     assert protected.outcome == result.outcome
+
+
+def test_baseline_persisted_and_recoverable_alongside_decision(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    response = ProviderChoiceResponse(selected_option_id="a", probabilities={"a": 0.95, "b": 0.05})
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=response))
+    baseline = Baseline(action="reproduce first", recorded_at=datetime.now(UTC))
+    result = engine.run_shadow(config, request_, baseline=baseline)
+
+    loaded = baseline_module.load_protected(result.record_id, directory=tmp_path / "baseline")
+    assert loaded == baseline
+
+
+def test_baseline_persisted_before_provider_call(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    order: list[str] = []
+
+    class _OrderTrackingAdapter:
+        def __enter__(self) -> _OrderTrackingAdapter:
+            return self
+
+        def __exit__(self, *exc_info: object) -> None:
+            return None
+
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            order.append("provider_call")
+            return ProviderChoiceResponse(
+                selected_option_id="a", probabilities={"a": 0.95, "b": 0.05}
+            )
+
+    original_save = baseline_module.save_protected
+
+    def _tracking_save(*args: object, **kwargs: object) -> None:
+        order.append("baseline_saved")
+        original_save(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(baseline_module, "save_protected", _tracking_save)
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _OrderTrackingAdapter())
+    baseline = Baseline(action="reproduce first", recorded_at=datetime.now(UTC))
+    engine.run_shadow(config, request_, baseline=baseline)
+
+    assert order == ["baseline_saved", "provider_call"]
+
+
+def test_no_baseline_by_default(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    response = ProviderChoiceResponse(selected_option_id="a", probabilities={"a": 0.95, "b": 0.05})
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=response))
+    result = engine.run_shadow(config, request_)
+    assert baseline_module.load_protected(result.record_id, directory=tmp_path / "baseline") is None
 
 
 def test_each_call_gets_a_fresh_record_id(

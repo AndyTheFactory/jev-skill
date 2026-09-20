@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from jev_decisions import baseline as baseline_module
 from jev_decisions import store
+from jev_decisions.baseline import Baseline
 from jev_decisions.config import JevConfig
 from jev_decisions.policy import DecisionOutcome, evaluate
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
@@ -40,8 +42,18 @@ def run_shadow(
     request: ChoiceRequest,
     *,
     abstain_option_ids: frozenset[str] = frozenset(),
+    baseline: Baseline | None = None,
 ) -> ShadowResult:
-    """Run one Choice decision and return only the shadow-safe summary."""
+    """Run one Choice decision and return only the shadow-safe summary.
+
+    ``baseline``, if given, is persisted under the same record id *before*
+    the provider is called, so it is always recorded independently of
+    whatever Jev returns.
+    """
+    record_id = store.new_record_id()
+    if baseline is not None:
+        baseline_module.save_protected(baseline, record_id)
+
     try:
         with OpenRouterAdapter(config) as adapter:
             response = adapter.decide(request)
@@ -52,6 +64,5 @@ def run_shadow(
             request, response, config=config.policy, abstain_option_ids=abstain_option_ids
         )
 
-    record_id = store.new_record_id()
     store.save(decision, record_id)
     return ShadowResult(record_id=record_id, outcome=decision.outcome)
