@@ -1,0 +1,15 @@
+id: dynamic-unsuitable-002
+dataset_version: v1
+split: dev
+category: unsuitable_invocation
+profile: null
+question: Should we redesign the architecture of the billing system?
+options:
+  - id: redesign
+    description: Start a system-wide redesign of the billing system.
+  - id: keep
+    description: Keep the current billing system architecture.
+context: >
+  A broad, system-wide architecture judgment. Requires deliberate reasoning
+  and a conversation with stakeholders, not a single Choice call. Used to
+  verify dynamic.validate_dynamic_request rejects it.

@@ -1,0 +1,16 @@
+id: investigation-typical-001
+dataset_version: v1
+split: eval
+category: typical
+profile: investigation
+context: >
+  Bug report: "Users say the export button does nothing sometimes." No
+  reproduction steps, no logs pulled yet, no code read yet -- this is the
+  very start of the investigation.
+label:
+  correct_option_id: reproduce
+  source: reviewed_label
+  notes: >
+    Systematic-debugging practice: always try to reproduce before reading
+    logs or code, since without a reproduction there's no way to verify a
+    fix.
