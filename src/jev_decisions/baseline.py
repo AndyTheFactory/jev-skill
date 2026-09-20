@@ -15,8 +15,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-DEFAULT_BASELINE_DIR = Path.home() / ".jev" / "baseline"
 _RECORD_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def default_baseline_dir() -> Path:
+    """Resolved at call time (not import time) so ``$HOME`` overrides take effect."""
+    return Path.home() / ".jev" / "baseline"
 
 
 class BaselineError(Exception):
@@ -66,7 +70,7 @@ def _path_for(record_id: str, directory: Path) -> Path:
 
 def save_protected(baseline: Baseline, record_id: str, *, directory: Path | None = None) -> None:
     """Persist a baseline alongside its decision's record id."""
-    directory = directory or DEFAULT_BASELINE_DIR
+    directory = directory if directory is not None else default_baseline_dir()
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = _path_for(record_id, directory)
     path.write_text(baseline.model_dump_json())
@@ -74,7 +78,7 @@ def save_protected(baseline: Baseline, record_id: str, *, directory: Path | None
 
 def load_protected(record_id: str, *, directory: Path | None = None) -> Baseline | None:
     """Load a previously persisted baseline for a record id, if one exists."""
-    directory = directory or DEFAULT_BASELINE_DIR
+    directory = directory if directory is not None else default_baseline_dir()
     path = _path_for(record_id, directory)
     if not path.is_file():
         return None

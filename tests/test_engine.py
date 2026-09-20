@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from jev_decisions import baseline as baseline_module
+from jev_decisions import cache as cache_module
 from jev_decisions import engine, store
 from jev_decisions.baseline import Baseline
 from jev_decisions.config import JevConfig
@@ -39,8 +40,9 @@ class _StubAdapter:
 
 @pytest.fixture(autouse=True)
 def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(store, "DEFAULT_STORE_DIR", tmp_path)
-    monkeypatch.setattr(baseline_module, "DEFAULT_BASELINE_DIR", tmp_path / "baseline")
+    monkeypatch.setattr(store, "default_store_dir", lambda: tmp_path)
+    monkeypatch.setattr(baseline_module, "default_baseline_dir", lambda: tmp_path / "baseline")
+    monkeypatch.setattr(cache_module, "default_cache_dir", lambda: tmp_path / "cache")
 
 
 @pytest.fixture
@@ -158,6 +160,67 @@ def test_no_baseline_by_default(
     monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(response=response))
     result = engine.run_shadow(config, request_)
     assert baseline_module.load_protected(result.record_id, directory=tmp_path / "baseline") is None
+
+
+def test_repeated_identical_request_reuses_cache_one_provider_call(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = {"n": 0}
+
+    class _CountingAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            call_count["n"] += 1
+            return super().decide(request)
+
+    response = ProviderChoiceResponse(selected_option_id="a", probabilities={"a": 0.95, "b": 0.05})
+    monkeypatch.setattr(
+        engine, "OpenRouterAdapter", lambda cfg: _CountingAdapter(response=response)
+    )
+    first = engine.run_shadow(config, request_)
+    second = engine.run_shadow(config, request_)
+
+    assert call_count["n"] == 1
+    assert first.outcome == second.outcome == "accepted"
+    assert first.record_id != second.record_id  # unique correlation id per call
+
+
+def test_changed_context_invalidates_cache_new_provider_call(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = {"n": 0}
+
+    class _CountingAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            call_count["n"] += 1
+            return super().decide(request)
+
+    response = ProviderChoiceResponse(selected_option_id="a", probabilities={"a": 0.95, "b": 0.05})
+    monkeypatch.setattr(
+        engine, "OpenRouterAdapter", lambda cfg: _CountingAdapter(response=response)
+    )
+    engine.run_shadow(config, request_)
+    changed = request_.model_copy(update={"context": "new evidence changes things"})
+    engine.run_shadow(config, changed)
+
+    assert call_count["n"] == 2
+
+
+def test_failed_outcome_not_cached_retries_provider(
+    config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    call_count = {"n": 0}
+    error = ProviderError(DecisionError(code="timeout", message="timeout"))
+
+    class _CountingFailingAdapter(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            call_count["n"] += 1
+            raise error
+
+    monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _CountingFailingAdapter())
+    engine.run_shadow(config, request_)
+    engine.run_shadow(config, request_)
+
+    assert call_count["n"] == 2
 
 
 def test_each_call_gets_a_fresh_record_id(

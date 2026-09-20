@@ -17,8 +17,12 @@ from uuid import uuid4
 
 from jev_decisions.policy import Decision
 
-DEFAULT_STORE_DIR = Path.home() / ".jev" / "shadow"
 _RECORD_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def default_store_dir() -> Path:
+    """Resolved at call time (not import time) so ``$HOME`` overrides take effect."""
+    return Path.home() / ".jev" / "shadow"
 
 
 class RecordNotFoundError(Exception):
@@ -40,7 +44,7 @@ def _path_for(record_id: str, directory: Path) -> Path:
 
 
 def save(decision: Decision, record_id: str, *, directory: Path | None = None) -> None:
-    directory = directory or DEFAULT_STORE_DIR
+    directory = directory if directory is not None else default_store_dir()
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = _path_for(record_id, directory)
     path.write_text(json.dumps(decision.model_dump(mode="json")))
@@ -48,7 +52,7 @@ def save(decision: Decision, record_id: str, *, directory: Path | None = None) -
 
 
 def load(record_id: str, *, directory: Path | None = None) -> Decision:
-    directory = directory or DEFAULT_STORE_DIR
+    directory = directory if directory is not None else default_store_dir()
     path = _path_for(record_id, directory)
     if not path.is_file():
         raise RecordNotFoundError(f"no protected result for record id {record_id!r}")
