@@ -44,6 +44,7 @@ class TelemetryEvent(BaseModel):
     timestamp: datetime
     profile: str | None
     model: str
+    provider: str | None = None
     mode: str
     outcome: str
     latency_ms: float
