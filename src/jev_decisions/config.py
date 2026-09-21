@@ -38,13 +38,15 @@ class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Literal["openrouter", "typesafe"] = "openrouter"
-    model: str | None = None
+    model: str | None = "openrouter/auto"
     timeout_seconds: float = Field(default=10.0, gt=0)
     max_retries: int = Field(default=2, ge=0, le=5)
     api_key_env: str | None = None
 
     @model_validator(mode="after")
     def _validate_model_for_provider(self) -> ProviderConfig:
+        if self.name == "typesafe" and "model" not in self.model_fields_set:
+            self.model = "jev-latest"
         if (
             self.name == "typesafe"
             and self.model is not None
@@ -58,7 +60,7 @@ class ProviderConfig(BaseModel):
 
     @property
     def resolved_model(self) -> str:
-        return self.model or ("jev-latest" if self.name == "typesafe" else "~typesafe/jev-latest")
+        return self.model or ("jev-latest" if self.name == "typesafe" else "openrouter/auto")
 
     @property
     def credential_env(self) -> str:
