@@ -10,8 +10,9 @@
 schema_version: "1.0"
 provider:
   name: openrouter       # openrouter (default) | typesafe
-  # Omit model for per-provider default: ~typesafe/jev-latest or jev-latest.
+  model: "~typesafe/jev-latest"  # Optional: omit for built-in OpenRouter default.
   # For TypeSafe direct: name: typesafe; model: jev-latest; install .[typesafe].
+  # Remove the OpenRouter model field when switching providers.
   timeout_seconds: 10
   max_retries: 2
   # api_key_env: OPENROUTER_API_KEY  # optional override; normally omit
