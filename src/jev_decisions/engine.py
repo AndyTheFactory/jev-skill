@@ -39,6 +39,7 @@ from jev_decisions.budget import BudgetExceededError
 from jev_decisions.config import JevConfig
 from jev_decisions.fingerprint import compute_fingerprint
 from jev_decisions.policy import Decision, DecisionOutcome, evaluate
+from jev_decisions.provider.factory import create_adapter
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceRequest
 from jev_decisions.schemas import DecisionError as _DecisionError
@@ -117,7 +118,7 @@ def _run(
             decision = evaluate(request, None, error=budget_error, config=config.policy)
         else:
             try:
-                with OpenRouterAdapter(config) as adapter:
+                with create_adapter(config, openrouter_cls=OpenRouterAdapter) as adapter:
                     response = adapter.decide(request)
             except ProviderError as exc:
                 decision = evaluate(request, None, error=exc, config=config.policy)
@@ -141,7 +142,8 @@ def _run(
                 fingerprint=fingerprint,
                 timestamp=datetime.now(UTC),
                 profile=request.profile,
-                model=config.provider.model,
+                model=config.provider.resolved_model,
+                provider=config.provider.name,
                 mode=config.execution.mode,
                 outcome=decision.outcome,
                 latency_ms=latency_ms,
