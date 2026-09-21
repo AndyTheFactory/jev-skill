@@ -33,7 +33,9 @@ def _config(name: str = "typesafe") -> JevConfig:
 
 
 class FakeClient:
-    def __init__(self, selected: str = "database", probabilities: dict[str, float] | None = None) -> None:
+    def __init__(
+        self, selected: str = "database", probabilities: dict[str, float] | None = None
+    ) -> None:
         self.selected = selected
         self.probabilities = probabilities or {"database": 0.95, "frontend": 0.05}
         self.calls: list[dict[str, Any]] = []
