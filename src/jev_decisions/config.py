@@ -64,7 +64,9 @@ class ProviderConfig(BaseModel):
 
     @property
     def credential_env(self) -> str:
-        return self.api_key_env or ("TYPESAFE_API_KEY" if self.name == "typesafe" else "OPENROUTER_API_KEY")
+        if self.api_key_env:
+            return self.api_key_env
+        return "TYPESAFE_API_KEY" if self.name == "typesafe" else "OPENROUTER_API_KEY"
 
 
 class ExecutionConfig(BaseModel):
