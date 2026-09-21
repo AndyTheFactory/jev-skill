@@ -93,7 +93,7 @@ class TypeSafeAdapter:
             )
             response.validate_against_request(request)
             return response
-        except (ValidationError, SchemaValidationError, KeyError, AttributeError, TypeError) as exc:
+        except (ValidationError, SchemaValidationError, KeyError, AttributeError, TypeError):
             # Never include SDK response bodies or user context in diagnostics.
             raise _error("invalid_response", "malformed TypeSafe Choice response") from None
         except Exception as exc:
