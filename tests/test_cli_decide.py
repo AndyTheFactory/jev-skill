@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -272,6 +273,50 @@ def test_doctor_reports_config_and_credential(capsys: pytest.CaptureFixture[str]
     assert report["config"] == "ok"
     assert report["credential_present"] is True
     assert report["execution_mode"] == "shadow"
+
+
+def test_doctor_loads_explicit_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "OPENROUTER_API_KEY=from-file\n"
+        "JEV_EXECUTION_MODE=active\n"
+        "JEV_EXECUTION_ACTIVE_PROFILES=task-routing\n"
+    )
+
+    code = cli.main(["--env-file", str(env_file), "doctor"])
+
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["credential_present"] is True
+    assert report["execution_mode"] == "active"
+    assert report["active_profiles"] == ["task-routing"]
+    assert "from-file" not in json.dumps(report)
+    assert "OPENROUTER_API_KEY" not in os.environ
+
+
+def test_existing_environment_overrides_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("JEV_PROVIDER_MODEL", "environment-model")
+    env_file = tmp_path / ".env"
+    env_file.write_text("JEV_PROVIDER_MODEL=file-model\n")
+
+    code = cli.main(["--env-file", str(env_file), "doctor"])
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["model"] == "environment-model"
+
+
+def test_missing_env_file_exits_65(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "missing.env"
+    code = cli.main(["--env-file", str(missing), "doctor"])
+    assert code == cli.EX_DATAERR
+    assert str(missing) in capsys.readouterr().err
 
 
 def test_doctor_warns_on_unknown_active_profile(

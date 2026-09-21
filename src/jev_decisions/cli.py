@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from dotenv import dotenv_values
 from pydantic import ValidationError
 
 from jev_decisions import __version__, store
@@ -56,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Jev decisions for Claude Code.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        metavar="FILE",
+        help="Load missing environment variables from FILE for this invocation.",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -102,6 +111,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+@contextmanager
+def _environment_from_file(path: Path | None) -> Iterator[None]:
+    """Temporarily add variables from an explicitly selected dotenv file."""
+    if path is None:
+        yield
+        return
+    if not path.is_file():
+        raise ConfigError(f"environment file {path} does not exist or is not a file")
+    try:
+        values = dotenv_values(path)
+    except (OSError, UnicodeError) as exc:
+        raise ConfigError(f"could not read environment file {path}: {exc}") from exc
+
+    added = {
+        key: value
+        for key, value in values.items()
+        if value is not None and key not in os.environ
+    }
+    os.environ.update(added)
+    try:
+        yield
+    finally:
+        for key in added:
+            os.environ.pop(key, None)
 
 
 def _read_request_json(args: argparse.Namespace) -> dict[str, Any]:
@@ -294,16 +329,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "decide":
-        return cmd_decide(args)
-    if args.command == "reveal":
-        return cmd_reveal(args)
-    if args.command == "doctor":
-        return cmd_doctor(args)
-    if args.command == "profile":
-        return cmd_profile(args)
-    if args.command == "evaluate":
-        return cmd_evaluate(args)
+    try:
+        with _environment_from_file(args.env_file):
+            if args.command == "decide":
+                return cmd_decide(args)
+            if args.command == "reveal":
+                return cmd_reveal(args)
+            if args.command == "doctor":
+                return cmd_doctor(args)
+            if args.command == "profile":
+                return cmd_profile(args)
+            if args.command == "evaluate":
+                return cmd_evaluate(args)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EX_DATAERR
 
     parser.print_help()
     return 0

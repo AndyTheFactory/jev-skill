@@ -112,9 +112,13 @@ evidence a profile should have behind it before this is turned on.
 ```bash
 jev doctor                    # config validity, execution mode, credential presence
 jev doctor --check-provider   # also attempts a live, minimal provider call
+jev --env-file .env doctor    # load missing environment variables from a chosen file
 ```
 
 `jev doctor` never prints your API key, only whether the selected provider has a credential configured.
+`--env-file` must precede the command. Existing process environment variables override
+values from the file. Because `JEV_EXECUTION_*` variables are trusted execution settings,
+only load environment files you trust.
 
 ### Manual decision, ad-hoc
 
