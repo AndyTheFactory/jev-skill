@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
-from jev_decisions.config import JevConfig
+from jev_decisions.config import load_config
 
 REPO_ROOT = Path(__file__).parent.parent
 
 
-def test_example_config_matches_real_schema() -> None:
-    raw = yaml.safe_load((REPO_ROOT / "config" / "example.yaml").read_text())
-    config = JevConfig.model_validate(raw)
+def test_example_config_is_valid_as_project_config(tmp_path: Path) -> None:
+    config = load_config(
+        user_path=tmp_path / "missing-user.yaml",
+        project_path=REPO_ROOT / "config" / "example.yaml",
+    )
     assert config.execution.mode == "shadow"
     assert config.provider.model == "~typesafe/jev-latest"
 

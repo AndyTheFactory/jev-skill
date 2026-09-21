@@ -1,12 +1,12 @@
-# Example ~/.jev/config.yaml or ./.jev.yaml. Every field is optional; only
-# override what you need to change from the defaults shown here.
+# Example ./.jev.yaml. Every field is optional; only override what you need
+# to change from the defaults shown here.
 #
 # Credentials are never read from this file. Set OPENROUTER_API_KEY (default)
 # or TYPESAFE_API_KEY (native SDK provider) in the environment instead.
 #
-# NOTE: execution.mode: active is rejected when set from a project-level
-# file (./.jev.yaml) -- only ~/.jev/config.yaml, the JEV_EXECUTION_MODE
-# environment variable, or an explicit CLI override may enable it.
+# NOTE: the entire execution section is rejected in a project-level file.
+# Configure it in ~/.jev/config.yaml, through JEV_EXECUTION_* environment
+# variables, or with explicit CLI overrides. See README.md for an example.
 schema_version: "1.0"
 provider:
   name: openrouter       # openrouter (default) | typesafe
@@ -16,9 +16,6 @@ provider:
   timeout_seconds: 10
   max_retries: 2
   # api_key_env: OPENROUTER_API_KEY  # optional override; normally omit
-execution:
-  mode: shadow          # shadow (default) | active
-  active_profiles: []
 telemetry:
   enabled: true
   include_context: false
