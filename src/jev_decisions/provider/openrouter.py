@@ -38,7 +38,7 @@ class ProviderError(Exception):
 
 def _build_payload(config: JevConfig, request: ChoiceRequest) -> dict[str, Any]:
     return {
-        "model": config.provider.model,
+        "model": config.provider.resolved_model,
         "state": {"context": request.context},
         "questions": {
             QUESTION_KEY: {
@@ -100,7 +100,7 @@ class OpenRouterAdapter:
             raise ProviderError(
                 DecisionError(
                     code="authentication_error",
-                    message=f"missing credential: set {self._config.provider.api_key_env}",
+                    message=f"missing credential: set {self._config.provider.credential_env}",
                 )
             )
 
