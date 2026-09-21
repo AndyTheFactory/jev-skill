@@ -40,6 +40,7 @@ from jev_decisions.engine import run_decision
 from jev_decisions.evaluation.dataset import DatasetError, load_dataset
 from jev_decisions.evaluation.metrics import EvaluationError, build_report, load_manifest
 from jev_decisions.profiles import ProfileError, load_registry
+from jev_decisions.provider.factory import create_adapter
 from jev_decisions.provider.openrouter import OpenRouterAdapter, ProviderError
 from jev_decisions.schemas import ChoiceOption, ChoiceRequest
 from jev_decisions.telemetry import read_events
@@ -262,6 +263,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 f"unknown profile id(s) {unknown} in execution.active_profiles "
                 "(typo? active mode silently never triggers for these)"
             )
+    report["provider"] = config.provider.name
+    report["model"] = config.provider.resolved_model
     report["credential_present"] = config.get_api_key() is not None
 
     if args.check_provider:
@@ -276,7 +279,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 ),
             )
             try:
-                with OpenRouterAdapter(config) as adapter:
+                with create_adapter(config, openrouter_cls=OpenRouterAdapter) as adapter:
                     adapter.decide(probe)
                 report["provider_connectivity"] = "ok"
             except ProviderError as exc:
