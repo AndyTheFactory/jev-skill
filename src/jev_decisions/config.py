@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 SCHEMA_VERSIONS = ("1.0",)
 
@@ -42,6 +42,19 @@ class ProviderConfig(BaseModel):
     timeout_seconds: float = Field(default=10.0, gt=0)
     max_retries: int = Field(default=2, ge=0, le=5)
     api_key_env: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_model_for_provider(self) -> ProviderConfig:
+        if (
+            self.name == "typesafe"
+            and self.model is not None
+            and ("/" in self.model or self.model.startswith("~"))
+        ):
+            raise ValueError(
+                "provider.model is an OpenRouter-style identifier; "
+                "set the TypeSafe model (for example jev-latest) or omit model"
+            )
+        return self
 
     @property
     def resolved_model(self) -> str:
