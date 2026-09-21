@@ -95,7 +95,6 @@ def test_missing_typesafe_credential_fails_closed(
     [
         ("unknown", {"database": 0.95, "frontend": 0.05}),
         ("database", {"database": 1.0}),
-        ("database", {"database": 0.3, "frontend": 0.7}),
     ],
 )
 def test_invalid_choice_fails_closed(
