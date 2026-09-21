@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 SCHEMA_VERSIONS = ("1.0",)
 
@@ -37,11 +37,36 @@ class ConfigError(Exception):
 class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["openrouter"] = "openrouter"
-    model: str = "openrouter/auto"
+    name: Literal["openrouter", "typesafe"] = "openrouter"
+    model: str | None = "openrouter/auto"
     timeout_seconds: float = Field(default=10.0, gt=0)
     max_retries: int = Field(default=2, ge=0, le=5)
-    api_key_env: str = "OPENROUTER_API_KEY"
+    api_key_env: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_model_for_provider(self) -> ProviderConfig:
+        if self.name == "typesafe" and "model" not in self.model_fields_set:
+            self.model = "jev-latest"
+        if (
+            self.name == "typesafe"
+            and self.model is not None
+            and ("/" in self.model or self.model.startswith("~"))
+        ):
+            raise ValueError(
+                "provider.model is an OpenRouter-style identifier; "
+                "set the TypeSafe model (for example jev-latest) or omit model"
+            )
+        return self
+
+    @property
+    def resolved_model(self) -> str:
+        return self.model or ("jev-latest" if self.name == "typesafe" else "openrouter/auto")
+
+    @property
+    def credential_env(self) -> str:
+        if self.api_key_env:
+            return self.api_key_env
+        return "TYPESAFE_API_KEY" if self.name == "typesafe" else "OPENROUTER_API_KEY"
 
 
 class ExecutionConfig(BaseModel):
@@ -79,7 +104,7 @@ class JevConfig(BaseModel):
 
     def get_api_key(self) -> str | None:
         """Read the provider credential from the environment only. Never logged."""
-        return os.environ.get(self.provider.api_key_env) or None
+        return os.environ.get(self.provider.credential_env) or None
 
 
 def _load_yaml_file(path: Path) -> dict[str, Any]:
@@ -104,6 +129,9 @@ def _env_overrides() -> dict[str, Any]:
         overrides.setdefault("execution", {})["active_profiles"] = [
             p.strip() for p in active_profiles.split(",") if p.strip()
         ]
+    provider_name = os.environ.get("JEV_PROVIDER_NAME")
+    if provider_name is not None:
+        overrides.setdefault("provider", {})["name"] = provider_name
     model = os.environ.get("JEV_PROVIDER_MODEL")
     if model is not None:
         overrides.setdefault("provider", {})["model"] = model

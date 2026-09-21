@@ -66,6 +66,7 @@ class EvaluationReport(BaseModel):
     dataset_version: str | None
     overall: ProfileMetrics
     by_profile: dict[str, ProfileMetrics]
+    by_provider: dict[str, ProfileMetrics]
     dynamic_by_fingerprint: dict[str, ProfileMetrics]
     missing_records: list[str]
 
@@ -206,6 +207,15 @@ def build_report(
         key = record.example.profile or "dynamic"
         by_profile.setdefault(key, []).append(record)
 
+    by_provider: dict[str, list[_Record]] = {}
+    for record in records:
+        provider = (
+            record.telemetry.provider
+            if record.telemetry is not None and record.telemetry.provider
+            else "unknown"
+        )
+        by_provider.setdefault(provider, []).append(record)
+
     dynamic_by_fingerprint: dict[str, list[_Record]] = {}
     for record in records:
         if record.example.profile is None and record.telemetry is not None:
@@ -218,6 +228,7 @@ def build_report(
         dataset_version=dataset_version,
         overall=_aggregate(records),
         by_profile={k: _aggregate(v) for k, v in by_profile.items()},
+        by_provider={k: _aggregate(v) for k, v in by_provider.items()},
         dynamic_by_fingerprint={k: _aggregate(v) for k, v in dynamic_by_fingerprint.items()},
         missing_records=missing,
     )

@@ -14,8 +14,7 @@ using this project requires network access or a provider account.
 
 - Python 3.11 or newer
 - pip
-- An [OpenRouter](https://openrouter.ai) API key, only if you want live
-  decisions rather than just the CLI/library scaffolding
+- An [OpenRouter](https://openrouter.ai) API key (default provider), or a [TypeSafe](https://typesafe.ai) API key and the optional native SDK for direct Jev requests, only if you want live decisions
 
 ## Install
 
@@ -24,7 +23,7 @@ git clone https://github.com/AndyTheFactory/jev-skill.git
 cd jev-skill
 python -m venv .venv
 source .venv/bin/activate       # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev]"\n# To enable the direct TypeSafe provider: python -m pip install -e ".[dev,typesafe]"
 jev --help
 jev --version
 ```
@@ -43,6 +42,36 @@ Set your credential in the environment -- never in a config file:
 ```bash
 export OPENROUTER_API_KEY="sk-..."
 ```
+
+### Native TypeSafe provider (optional)
+
+Install the official Python SDK and set its separate credential:
+
+```bash
+python -m pip install -e ".[typesafe]"
+export TYPESAFE_API_KEY="your-typesafe-key"
+```
+
+Select the provider in `~/.jev/config.yaml` (or `./.jev.yaml` for non-execution settings):
+
+```yaml
+provider:
+  name: typesafe
+  model: jev-latest
+```
+
+Alternatively, set `JEV_PROVIDER_NAME=typesafe` and optionally `JEV_PROVIDER_MODEL=jev-latest`.
+The default remains `openrouter`. Omit `provider.model` to use the selected provider's model
+default; do not reuse an OpenRouter `~typesafe/...` model name with the native provider.
+Run `jev doctor --check-provider` to test the selected provider. SDK installation is
+optional for OpenRouter users; a missing TypeSafe SDK or credential produces a safe
+provider error. A change of provider does not enable active mode.
+
+TypeSafe and OpenRouter are separate data recipients/billing services; only send
+task context you are permitted to share. The native SDK can log request and response
+bodies if its debug logging is enabled: keep that logging disabled for sensitive work.
+Because provider outputs may have different calibration, repeat shadow-mode evaluation
+before enabling any active profile after switching providers.
 
 Everything else is optional. Config loads with this precedence (highest
 wins): CLI overrides > environment (`JEV_*`) > project file (`./.jev.yaml`)
@@ -85,7 +114,7 @@ jev doctor                    # config validity, execution mode, credential pres
 jev doctor --check-provider   # also attempts a live, minimal provider call
 ```
 
-`jev doctor` never prints your API key, only whether one is configured.
+`jev doctor` never prints your API key, only whether the selected provider has a credential configured.
 
 ### Manual decision, ad-hoc
 

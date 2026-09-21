@@ -144,3 +144,24 @@ dependency on the current directory being this repository. To uninstall:
 `pip uninstall jev-decisions` (the Claude Code skill, if installed
 separately under a skills directory, is removed independently -- see
 `README.md`).
+
+## Provider selection (change request #31–35)
+
+The Choice request/response contract and policy engine are provider-independent.
+Choose \`provider.name: openrouter\` (default) or \`provider.name: typesafe\`.
+The native provider requires \`pip install 'jev-decisions[typesafe]'\` and
+\`TYPESAFE_API_KEY\`; the OpenRouter provider uses \`OPENROUTER_API_KEY\`.
+A missing SDK or credential returns a sanitized provider error.
+
+\`ProviderConfig.resolved_model\` selects the matching model alias if omitted.
+Changing the provider does not activate a profile and never changes the
+public \`ChoiceRequest\` or \`ProviderChoiceResponse\` shape.
+
+### Migration and evaluation
+
+Decision fingerprints now include the provider name and resolved model, deliberately
+invalidating legacy OpenRouter cache entries. New telemetry includes \`provider\`;
+older telemetry records without provenance are parsed as \`unknown\`, **not**
+automatically reclassified as TypeSafe or OpenRouter. Evaluation reports include
+\`by_provider\` to keep the two providers' calibration, latency and cost separate.
+Re-run shadow-mode evaluation after switching providers before enabling active mode.

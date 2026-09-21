@@ -32,7 +32,8 @@ def canonical_payload(
         ),
         "context": request.context,
         "profile": request.profile,
-        "provider_model": config.provider.model,
+        "provider": config.provider.name,
+        "provider_model": config.provider.resolved_model,
         "policy": config.policy.model_dump(),
         "abstain_option_ids": sorted(abstain_option_ids),
     }
