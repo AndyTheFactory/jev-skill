@@ -336,7 +336,9 @@ def test_doctor_no_warning_for_known_active_profile(
 ) -> None:
     user_config = tmp_path / ".jev" / "config.yaml"
     user_config.parent.mkdir(parents=True)
-    user_config.write_text("execution:\n  mode: active\n  active_profiles: [task-routing]\n")
+    user_config.write_text(
+        "execution:\n  mode: active\n  active_profiles: [task-routing, dynamic]\n"
+    )
     code = cli.main(["doctor"])
     assert code == 0
     report = json.loads(capsys.readouterr().out)

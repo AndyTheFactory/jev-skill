@@ -330,7 +330,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     report["execution_mode"] = config.execution.mode
     report["active_profiles"] = list(config.execution.active_profiles)
     if config.execution.active_profiles:
-        known_ids = {p.id for p in load_registry().list()}
+        known_ids = {p.id for p in load_registry().list()} | {DYNAMIC_PROFILE_ID}
         unknown = [p for p in config.execution.active_profiles if p not in known_ids]
         if unknown:
             report["active_profiles_warning"] = (
