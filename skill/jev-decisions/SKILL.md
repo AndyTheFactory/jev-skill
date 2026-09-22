@@ -102,23 +102,32 @@ JSON
 
 ### Reading the result
 
-`jev decide` prints only `{record_id, outcome, action: {permitted: false}}`
-to stdout -- never the selected option or probability -- and the outcome to
-stderr, exiting with a code you can branch on (0 accepted, 1 abstained, 2
-failed, 3 rejected). Treat anything other than `accepted` as "no usable
-signal" and proceed on your own judgment; treat `accepted` as, at most, one
-input to weigh alongside everything else you know about the task. You are
-not expected to reveal or read the actual selected option -- shadow mode
-exists precisely so it doesn't bias your reasoning.
+`jev decide` prints JSON to stdout:
 
-**Active mode (opt-in, per profile).** An operator can explicitly configure
-a specific profile (including `dynamic`) to also expose `selected_option_id`/`probability` for an
-`accepted` outcome (see `README.md` for the config). `action.permitted` is
-still always `false` even then -- ground rule 2 above applies exactly the
-same way: the visible recommendation is one more input to weigh, never
-something that authorizes a destructive action, a deployment, a credential
-use, or anything else your permission settings or the user's explicit
-instructions would otherwise block.
+```json
+{"record_id": "...", "outcome": {"answered": true}}
+```
+
+and exits with a code you can branch on (0 accepted, 1 abstained, 2 failed,
+3 rejected). `answered: false` means Jev gave no usable signal: proceed on
+your own judgment. In the default shadow mode, `answered: true` comes
+without the answer itself -- don't reveal or go looking for it; shadow mode
+exists precisely so it doesn't bias your reasoning. Treat it, at most, as a
+hint that the question has a confident answer.
+
+**Active mode (opt-in, per profile).** An operator can configure specific
+profiles (including `dynamic`) to also return the answer:
+
+```json
+{"record_id": "...", "outcome": {"answered": true, "answer": "redis"}, "probability": 0.93}
+```
+
+When you get an `answer`, use it as your default for this decision and go
+ahead with it, unless you have a concrete reason it's wrong (evidence Jev
+didn't see, or an explicit user instruction). Ground rule 2 still applies:
+an answer never authorizes a destructive action, a deployment, a credential
+use, or anything your permission settings or the user's instructions would
+otherwise block.
 
 ### Diagnosing problems
 

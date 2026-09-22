@@ -30,4 +30,4 @@ def test_version() -> None:
 
 
 def test_library_import() -> None:
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.2.0"

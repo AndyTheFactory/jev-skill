@@ -1,10 +1,9 @@
 """M4: explicit active-mode configuration, per-profile gating, and fallback.
 
 Proves accepted results affect only the next-action suggestion for
-explicitly enabled profiles, every other outcome/profile/mode combination
-falls back to the ordinary shadow result, and action.permitted is always
-False regardless of mode -- an AdvisoryResult is a visible recommendation,
-never an execution authorization.
+explicitly enabled profiles, and every other outcome/profile/mode combination
+falls back to the ordinary shadow result -- an AdvisoryResult is a visible
+recommendation, never an execution authorization.
 """
 
 from __future__ import annotations
@@ -81,7 +80,6 @@ def test_active_mode_enabled_profile_accepted_advises(
     assert isinstance(result, engine.AdvisoryResult)
     assert result.selected_option_id == "a"
     assert result.probability == pytest.approx(0.95)
-    assert result.action.permitted is False  # a recommendation, never an authorization
 
 
 @pytest.mark.parametrize("response", [ABSTAINED])

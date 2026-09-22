@@ -73,10 +73,8 @@ def test_decide_accepted_exit_zero_reveals_no_answer(
     code = cli.main(["decide", "--input", str(req_file)])
     assert code == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["outcome"] == "accepted"
-    assert out["action"]["permitted"] is False
-    assert "record_id" in out
-    assert set(out) == {"record_id", "outcome", "action"}  # never selected/probability/reason
+    assert out["outcome"] == {"answered": True}  # never the answer/probability/reason
+    assert set(out) == {"record_id", "outcome"}
 
 
 def test_decide_abstained_exit_one(
@@ -86,7 +84,7 @@ def test_decide_abstained_exit_one(
     req_file = _write_request(tmp_path / "req.json", REQUEST)
     code = cli.main(["decide", "--input", str(req_file)])
     assert code == 1
-    assert json.loads(capsys.readouterr().out)["outcome"] == "abstained"
+    assert json.loads(capsys.readouterr().out)["outcome"] == {"answered": False}
 
 
 def test_decide_provider_failure_exit_two(
@@ -96,7 +94,7 @@ def test_decide_provider_failure_exit_two(
     req_file = _write_request(tmp_path / "req.json", REQUEST)
     code = cli.main(["decide", "--input", str(req_file)])
     assert code == 2
-    assert json.loads(capsys.readouterr().out)["outcome"] == "failed"
+    assert json.loads(capsys.readouterr().out)["outcome"] == {"answered": False}
 
 
 def test_decide_invalid_request_exit_65(
@@ -224,8 +222,8 @@ def test_decide_active_mode_enabled_profile_exposes_selected_option(
     code = cli.main(["decide", "--stdin"])
     assert code == 0
     out = json.loads(capsys.readouterr().out)
-    assert "selected_option_id" in out
-    assert out["action"]["permitted"] is False
+    assert out["outcome"] == {"answered": True, "answer": "coding"}
+    assert out["probability"] == 1.0
 
 
 def test_decide_active_mode_without_enabled_profile_stays_shadow(
@@ -240,7 +238,7 @@ def test_decide_active_mode_without_enabled_profile_stays_shadow(
     code = cli.main(["decide", "--input", str(req_file)])
     assert code == 0
     out = json.loads(capsys.readouterr().out)
-    assert "selected_option_id" not in out
+    assert "answer" not in out["outcome"]
 
 
 def test_reveal_unknown_record_id_exit_65(capsys: pytest.CaptureFixture[str]) -> None:
@@ -470,8 +468,8 @@ def test_dynamic_profile_active_shows_recommendation(
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"profile": "dynamic", **REQUEST})))
     assert cli.main(["decide", "--stdin"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["selected_option_id"] == "a"
-    assert out["action"]["permitted"] is False
+    assert out["outcome"] == {"answered": True, "answer": "a"}
+    assert out["probability"] == 0.9
 
 
 def test_dynamic_profile_not_listed_stays_shadow(
@@ -481,7 +479,7 @@ def test_dynamic_profile_not_listed_stays_shadow(
     _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"profile": "dynamic", **REQUEST})))
     assert cli.main(["decide", "--stdin"]) == 0
-    assert set(json.loads(capsys.readouterr().out)) == {"record_id", "outcome", "action"}
+    assert json.loads(capsys.readouterr().out)["outcome"] == {"answered": True}
 
 
 def test_other_profile_label_on_own_content_stays_shadow_even_if_active(
@@ -492,7 +490,7 @@ def test_other_profile_label_on_own_content_stays_shadow_even_if_active(
     payload = {"profile": "task-routing", **REQUEST}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
     assert cli.main(["decide", "--stdin"]) == 0
-    assert "selected_option_id" not in json.loads(capsys.readouterr().out)
+    assert "answer" not in json.loads(capsys.readouterr().out)["outcome"]
 
 
 def test_dynamic_profile_rejects_high_risk_question(
@@ -528,7 +526,7 @@ def test_dynamic_profile_uncertain_option_abstains(
     payload = {"profile": "dynamic", "question": REQUEST["question"], "options": options}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
     assert cli.main(["decide", "--stdin"]) == 1
-    assert json.loads(capsys.readouterr().out)["outcome"] == "abstained"
+    assert json.loads(capsys.readouterr().out)["outcome"] == {"answered": False}
 
 
 def test_profile_list_and_show_include_dynamic(capsys: pytest.CaptureFixture[str]) -> None:

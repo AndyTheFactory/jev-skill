@@ -9,18 +9,17 @@ JSON results go to stdout; diagnostics and errors go to stderr. Exit codes:
 - 2: CLI usage error (argparse default, e.g. missing --input/--stdin)
 - 65: invalid input data (fails validation before any network call)
 
-``decide`` runs in shadow mode by default: it prints only a record id,
-outcome and ``action.permitted=false`` -- never the selected option or
-probability. Use ``jev reveal RECORD_ID`` as a separate, explicit step to
-see the full protected decision. The only exception is a request whose
-``profile`` is explicitly listed in a trusted config's
-``execution.active_profiles`` with ``execution.mode: active``: for an
-"accepted" outcome only, the output additionally includes
-``selected_option_id``/``probability`` as a visible recommendation. The
-reserved ``dynamic`` profile is how a caller-supplied question/options
-request can qualify; any other profile label on such a request is dropped.
-``action.permitted`` is still always ``false`` even then -- this never
-authorizes anything by itself.
+``decide`` prints ``{"record_id", "outcome": {"answered": bool}}``.
+``answered`` is true only for an "accepted" decision; the exact status
+(accepted/abstained/failed/rejected) is in the exit code and on stderr.
+Shadow mode (the default) never shows the answer: use ``jev reveal
+RECORD_ID`` as a separate, explicit step to see the full protected decision.
+The only exception is a request whose ``profile`` is explicitly listed in a
+trusted config's ``execution.active_profiles`` with ``execution.mode:
+active``: for an accepted decision only, ``outcome.answer`` and a top-level
+``probability`` are added. The reserved ``dynamic`` profile is how a
+caller-supplied question/options request can qualify; any other profile
+label on such a request is dropped.
 """
 
 from __future__ import annotations
@@ -47,7 +46,7 @@ from jev_decisions.dynamic import (
     DynamicRequestRejected,
     validate_dynamic_request,
 )
-from jev_decisions.engine import run_decision
+from jev_decisions.engine import AdvisoryResult, ShadowResult, run_decision
 from jev_decisions.evaluation.dataset import DatasetError, load_dataset
 from jev_decisions.evaluation.metrics import EvaluationError, build_report, load_manifest
 from jev_decisions.profiles import ProfileError, load_registry
@@ -167,6 +166,15 @@ def _parse_request(raw: dict[str, Any]) -> ChoiceRequest:
     return ChoiceRequest.model_validate(raw)
 
 
+def _render(result: ShadowResult | AdvisoryResult) -> dict[str, Any]:
+    outcome: dict[str, Any] = {"answered": result.outcome == "accepted"}
+    output: dict[str, Any] = {"record_id": result.record_id, "outcome": outcome}
+    if isinstance(result, AdvisoryResult):
+        outcome["answer"] = result.selected_option_id
+        output["probability"] = result.probability
+    return output
+
+
 def cmd_decide(args: argparse.Namespace) -> int:
     try:
         raw = _read_request_json(args)
@@ -241,7 +249,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
     result = run_decision(
         config, request, abstain_option_ids=abstain_option_ids, baseline=baseline
     )
-    print(json.dumps(result.model_dump(), indent=2))
+    print(json.dumps(_render(result), indent=2))
     print(f"outcome={result.outcome}", file=sys.stderr)
     return EXIT_BY_OUTCOME[result.outcome]
 

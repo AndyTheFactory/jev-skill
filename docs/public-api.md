@@ -63,7 +63,7 @@ active-mode gating, all wired together.
 - `run_decision(config, request, ...) -> ShadowResult | AdvisoryResult` --
   what `jev decide` calls; upgrades to `AdvisoryResult` only under the
   active-mode conditions documented in `README.md`.
-- `ShadowResult`, `AdvisoryResult`, `ActionPermission`.
+- `ShadowResult`, `AdvisoryResult`. (`ActionPermission` and the `action` field were removed in 0.2.0.)
 
 ### `jev_decisions.profiles`
 - `load_registry(directory=None) -> ProfileRegistry`.

@@ -1,12 +1,12 @@
 """Shadow-mode engine: isolates the full Decision from the caller.
 
 `run_shadow` always persists the full policy Decision to the protected
-store and returns only a :class:`ShadowResult` -- record id, outcome, and
-``action.permitted=False`` -- never the selected option, probability,
-confidence or reasoning. It is unconditional: every caller of `run_shadow`
-gets this regardless of config, which is what makes it safe for things like
-the benchmark runner (`scripts/run_benchmark.py`) that must never reveal a
-result during a task no matter how the operator's config is set.
+store and returns only a :class:`ShadowResult` -- record id and outcome --
+never the selected option, probability, confidence or reasoning. It is
+unconditional: every caller of `run_shadow` gets this regardless of config,
+which is what makes it safe for things like the benchmark runner
+(`scripts/run_benchmark.py`) that must never reveal a result during a task
+no matter how the operator's config is set.
 
 `run_decision` is what `jev decide` actually calls. It shares `run_shadow`'s
 internal `_run` (one fingerprint/cache/provider/budget/telemetry/persist
@@ -15,11 +15,10 @@ pass -- no re-reading what was just written), then -- only for an
 ``config.execution.mode == "active"``, and only when the request's profile
 is explicitly listed in ``config.execution.active_profiles`` -- upgrades the
 result to an :class:`AdvisoryResult` that also exposes the selected option
-and its probability. ``action.permitted`` is still always False on
-`AdvisoryResult`: this makes the recommendation visible for Claude's own
-reasoning to weigh, same as a hint, and never authorizes anything by itself
-(see #19/#20). Every other case (shadow mode, a profile not explicitly
-enabled, or any non-"accepted" outcome) gets the ordinary `ShadowResult`.
+and its probability. This makes the recommendation visible for Claude's own
+reasoning to weigh; Jev never executes anything itself. Every other case
+(shadow mode, a profile not explicitly enabled, or any non-"accepted"
+outcome) gets the ordinary `ShadowResult`.
 """
 
 from __future__ import annotations
@@ -45,12 +44,6 @@ from jev_decisions.schemas import ChoiceRequest
 from jev_decisions.schemas import DecisionError as _DecisionError
 
 
-class ActionPermission(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    permitted: bool = False
-
-
 class ShadowResult(BaseModel):
     """Everything a standard `jev decide` call in shadow mode may reveal."""
 
@@ -58,14 +51,13 @@ class ShadowResult(BaseModel):
 
     record_id: str
     outcome: DecisionOutcome
-    action: ActionPermission = ActionPermission()
 
 
 class AdvisoryResult(BaseModel):
     """Surfaced only for outcome="accepted" on an explicitly active-mode-enabled
-    profile. ``action.permitted`` is still always False -- this is a visible
-    recommendation for Claude's own reasoning, never an execution authorization,
-    a permission grant, or a substitute for the user's explicit instructions.
+    profile. A visible recommendation for Claude's own reasoning, never an
+    execution authorization, a permission grant, or a substitute for the
+    user's explicit instructions.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -74,7 +66,6 @@ class AdvisoryResult(BaseModel):
     outcome: DecisionOutcome
     selected_option_id: str
     probability: float
-    action: ActionPermission = ActionPermission()
 
 
 def _profile_is_active(config: JevConfig, request: ChoiceRequest) -> bool:

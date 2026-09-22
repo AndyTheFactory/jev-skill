@@ -75,7 +75,6 @@ def test_documented_public_symbols_are_importable() -> None:
         validate_dynamic_request,
     )
     from jev_decisions.engine import (  # noqa: F401
-        ActionPermission,
         AdvisoryResult,
         ShadowResult,
         run_decision,

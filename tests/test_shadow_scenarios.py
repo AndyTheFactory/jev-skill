@@ -63,8 +63,7 @@ def _decision_response(selected: str, probabilities: dict[str, float]) -> httpx.
 
 
 def _assert_never_actionable(result: engine.ShadowResult) -> None:
-    assert result.action.permitted is False
-    assert result.outcome != "accepted" or result.action.permitted is False
+    assert set(result.model_dump()) == {"record_id", "outcome"}
 
 
 @respx.mock

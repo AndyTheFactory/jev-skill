@@ -104,10 +104,15 @@ execution:
 ```
 
 Only for a request using an explicitly listed profile, and only on an
-`accepted` outcome, `jev decide` additionally includes `selected_option_id`
-and `probability` in its output. `action.permitted` is still always
-`false` -- this makes the recommendation visible as one more input for
-Claude's own reasoning, never an authorization. Every other case (shadow
+`accepted` outcome, `jev decide` additionally includes the answer and its
+probability:
+
+```json
+{"record_id": "...", "outcome": {"answered": true, "answer": "redis"}, "probability": 0.93}
+```
+
+Jev never executes anything; the answer is a recommendation for Claude (or
+your script) to act on. Every other case (shadow
 mode, a profile not listed, or any non-`accepted` outcome) is unaffected
 and behaves exactly as documented above. See `eval/BENCHMARK.md` for the
 evidence a profile should have behind it before this is turned on.
@@ -153,11 +158,12 @@ JSON
 
 Or from a file: `jev decide --input request.json`.
 
-`jev decide` runs in shadow mode by default: it prints only `{record_id,
-outcome, action: {permitted: false}}` to stdout -- never the selected
-option, probability, confidence or reasoning -- plus the outcome to stderr.
-It exits 0 (accepted), 1 (abstained), 2 (failed/provider unavailable), 3
-(rejected/malformed), or 65 (invalid input, e.g. bad JSON or a validation
+`jev decide` runs in shadow mode by default: it prints only
+`{"record_id": "...", "outcome": {"answered": true|false}}` to stdout --
+never the answer, probability, confidence or reasoning -- plus the exact
+outcome (`accepted`/`abstained`/`failed`/`rejected`) to stderr. `answered`
+is true only for `accepted`. It exits 0 (accepted), 1 (abstained), 2
+(failed/provider unavailable), 3 (rejected/malformed), or 65 (invalid input, e.g. bad JSON or a validation
 error -- fails before any network call). To see the full decision, run
 `jev reveal RECORD_ID` as a separate, explicit step outside the original
 task. (The one exception is a profile explicitly listed under active mode,

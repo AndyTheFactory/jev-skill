@@ -3,8 +3,7 @@
 Proves a Jev recommendation -- accepted, in active mode, for an explicitly
 enabled profile -- can never look like or carry permission: no result type
 this codebase produces has any field that could be mistaken for
-authorization, `action.permitted` is exhaustively False across every
-outcome/mode combination, and dynamic-question validation rejects
+authorization across every outcome/mode combination, and dynamic-question validation rejects
 destructive/deployment/credential/production content regardless of whether
 active mode is configured (the two are orthogonal by construction: nothing
 in dynamic.py reads execution config at all).
@@ -59,7 +58,9 @@ def request_() -> ChoiceRequest:
     )
 
 
-# --- action.permitted is exhaustively False -----------------------------
+# --- no result carries a permission-shaped field -------------------------
+
+_PERMISSION_SHAPED = {"permitted", "authorized", "approved", "action"}
 
 _OUTCOME_RESPONSES = {
     "accepted": ProviderChoiceResponse(
@@ -73,7 +74,7 @@ _OUTCOME_RESPONSES = {
 
 
 @pytest.mark.parametrize("outcome", ["accepted", "abstained", "rejected"])
-def test_action_never_permitted_in_active_mode_any_outcome(
+def test_no_permission_field_in_active_mode_any_outcome(
     active_config: JevConfig,
     request_: ChoiceRequest,
     monkeypatch: pytest.MonkeyPatch,
@@ -82,20 +83,20 @@ def test_action_never_permitted_in_active_mode_any_outcome(
     response = _OUTCOME_RESPONSES[outcome]
     monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(response=response))
     result = engine.run_decision(active_config, request_)
-    assert result.action.permitted is False
+    assert not _PERMISSION_SHAPED & set(result.model_dump())
 
 
-def test_action_never_permitted_on_provider_failure_in_active_mode(
+def test_no_permission_field_on_provider_failure_in_active_mode(
     active_config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     error = ProviderError(DecisionError(code="timeout", message="timed out"))
     monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: StubAdapter(error=error))
     result = engine.run_decision(active_config, request_)
     assert result.outcome == "failed"
-    assert result.action.permitted is False
+    assert not _PERMISSION_SHAPED & set(result.model_dump())
 
 
-def test_action_never_permitted_in_shadow_mode(
+def test_no_permission_field_in_shadow_mode(
     request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -106,7 +107,7 @@ def test_action_never_permitted_in_shadow_mode(
         engine, "OpenRouterAdapter", lambda c: StubAdapter(response=accepted_response)
     )
     result = engine.run_decision(cfg, request_)
-    assert result.action.permitted is False
+    assert not _PERMISSION_SHAPED & set(result.model_dump())
 
 
 def test_revealed_decision_has_no_permission_field(
@@ -128,9 +129,7 @@ def test_advisory_result_has_no_field_beyond_documented_ones(
     )
     result = engine.run_decision(active_config, request_)
     assert isinstance(result, engine.AdvisoryResult)
-    expected_fields = {
-        "record_id", "outcome", "selected_option_id", "probability", "action"
-    }
+    expected_fields = {"record_id", "outcome", "selected_option_id", "probability"}
     assert set(result.model_dump()) == expected_fields
 
 

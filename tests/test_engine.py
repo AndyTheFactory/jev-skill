@@ -78,7 +78,7 @@ def test_shadow_result_never_exposes_selected_option(
     assert result.outcome == "accepted"
 
 
-def test_every_shadow_result_action_not_permitted(
+def test_every_shadow_result_exposes_only_record_id_and_outcome(
     config: JevConfig, request_: ChoiceRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for outcome_response in [
@@ -89,12 +89,12 @@ def test_every_shadow_result_action_not_permitted(
             engine, "OpenRouterAdapter", lambda cfg, r=outcome_response: _StubAdapter(response=r)
         )
         result = engine.run_shadow(config, request_)
-        assert result.action.permitted is False
+        assert set(result.model_dump()) == {"record_id", "outcome"}
 
     error = ProviderError(DecisionError(code="timeout", message="timeout"))
     monkeypatch.setattr(engine, "OpenRouterAdapter", lambda cfg: _StubAdapter(error=error))
     result = engine.run_shadow(config, request_)
-    assert result.action.permitted is False
+    assert set(result.model_dump()) == {"record_id", "outcome"}
 
 
 def test_full_decision_recoverable_from_protected_store(
