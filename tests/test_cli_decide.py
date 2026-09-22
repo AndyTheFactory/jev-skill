@@ -455,3 +455,84 @@ def test_doctor_check_provider_without_credential(
     assert code == 0
     report = json.loads(capsys.readouterr().out)
     assert report["provider_connectivity"] == "skipped: no credential"
+
+
+def _enable_active(monkeypatch: pytest.MonkeyPatch, profiles: str) -> None:
+    monkeypatch.setenv("JEV_EXECUTION_MODE", "active")
+    monkeypatch.setenv("JEV_EXECUTION_ACTIVE_PROFILES", profiles)
+
+
+def test_dynamic_profile_active_shows_recommendation(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _enable_active(monkeypatch, "dynamic")
+    _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"profile": "dynamic", **REQUEST})))
+    assert cli.main(["decide", "--stdin"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["selected_option_id"] == "a"
+    assert out["action"]["permitted"] is False
+
+
+def test_dynamic_profile_not_listed_stays_shadow(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _enable_active(monkeypatch, "task-routing")
+    _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"profile": "dynamic", **REQUEST})))
+    assert cli.main(["decide", "--stdin"]) == 0
+    assert set(json.loads(capsys.readouterr().out)) == {"record_id", "outcome", "action"}
+
+
+def test_other_profile_label_on_own_content_stays_shadow_even_if_active(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _enable_active(monkeypatch, "task-routing,dynamic")
+    _patch_adapter(monkeypatch, lambda config: _StubAdapter("accepted"))
+    payload = {"profile": "task-routing", **REQUEST}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert cli.main(["decide", "--stdin"]) == 0
+    assert "selected_option_id" not in json.loads(capsys.readouterr().out)
+
+
+def test_dynamic_profile_rejects_high_risk_question(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    payload = {"profile": "dynamic", **REQUEST, "question": "Should I force push to main?"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert cli.main(["decide", "--stdin"]) == cli.EX_DATAERR
+    assert "high-risk" in capsys.readouterr().err
+
+
+def test_dynamic_profile_requires_question_and_options(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"profile": "dynamic"})))
+    assert cli.main(["decide", "--stdin"]) == cli.EX_DATAERR
+    assert "requires its own question and options" in capsys.readouterr().err
+
+
+def test_dynamic_profile_uncertain_option_abstains(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class _PicksUnknown(_StubAdapter):
+        def decide(self, request: ChoiceRequest) -> ProviderChoiceResponse:
+            return ProviderChoiceResponse(
+                selected_option_id="insufficient_context",
+                probabilities={"a": 0.0, "b": 0.0, "insufficient_context": 1.0},
+            )
+
+    _enable_active(monkeypatch, "dynamic")
+    _patch_adapter(monkeypatch, lambda config: _PicksUnknown("accepted"))
+    options = [*REQUEST["options"], {"id": "insufficient_context", "description": "Unsure"}]
+    payload = {"profile": "dynamic", "question": REQUEST["question"], "options": options}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert cli.main(["decide", "--stdin"]) == 1
+    assert json.loads(capsys.readouterr().out)["outcome"] == "abstained"
+
+
+def test_profile_list_and_show_include_dynamic(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["profile", "list"]) == 0
+    assert "dynamic" in json.loads(capsys.readouterr().out)
+    assert cli.main(["profile", "show", "dynamic"]) == 0
+    assert json.loads(capsys.readouterr().out)["id"] == "dynamic"

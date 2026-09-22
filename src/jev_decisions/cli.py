@@ -16,7 +16,9 @@ see the full protected decision. The only exception is a request whose
 ``profile`` is explicitly listed in a trusted config's
 ``execution.active_profiles`` with ``execution.mode: active``: for an
 "accepted" outcome only, the output additionally includes
-``selected_option_id``/``probability`` as a visible recommendation.
+``selected_option_id``/``probability`` as a visible recommendation. The
+reserved ``dynamic`` profile is how a caller-supplied question/options
+request can qualify; any other profile label on such a request is dropped.
 ``action.permitted`` is still always ``false`` even then -- this never
 authorizes anything by itself.
 """
@@ -39,6 +41,12 @@ from jev_decisions import __version__, store
 from jev_decisions.baseline import BaselineError, load_baseline
 from jev_decisions.baseline import load_protected as load_protected_baseline
 from jev_decisions.config import ConfigError, load_config
+from jev_decisions.dynamic import (
+    DYNAMIC_PROFILE_ID,
+    UNCERTAIN_OPTION_IDS,
+    DynamicRequestRejected,
+    validate_dynamic_request,
+)
 from jev_decisions.engine import run_decision
 from jev_decisions.evaluation.dataset import DatasetError, load_dataset
 from jev_decisions.evaluation.metrics import EvaluationError, build_report, load_manifest
@@ -173,7 +181,14 @@ def cmd_decide(args: argparse.Namespace) -> int:
             print(f"error: invalid request: profile must be a string, got {profile_id!r}",
                   file=sys.stderr)
             return EX_DATAERR
-        if "options" not in raw and "question" not in raw:
+        if profile_id == DYNAMIC_PROFILE_ID:
+            if "options" not in raw or "question" not in raw:
+                print(f"error: invalid request: profile {DYNAMIC_PROFILE_ID!r} requires "
+                      "its own question and options", file=sys.stderr)
+                return EX_DATAERR
+            # Keep the label: this is the one profile that vouches for
+            # caller-supplied content, after validate_dynamic_request below.
+        elif "options" not in raw and "question" not in raw:
             try:
                 resolved = load_registry().get(profile_id)
             except ProfileError as exc:
@@ -200,6 +215,14 @@ def cmd_decide(args: argparse.Namespace) -> int:
     except (ValidationError, TypeError, ValueError) as exc:
         print(f"error: invalid request: {exc}", file=sys.stderr)
         return EX_DATAERR
+
+    if request.profile == DYNAMIC_PROFILE_ID:
+        try:
+            validate_dynamic_request(request)
+        except DynamicRequestRejected as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EX_DATAERR
+        abstain_option_ids = UNCERTAIN_OPTION_IDS & request.option_ids()
 
     try:
         config = load_config()
@@ -239,7 +262,15 @@ def cmd_reveal(args: argparse.Namespace) -> int:
 def cmd_profile(args: argparse.Namespace) -> int:
     registry = load_registry()
     if args.profile_command == "list":
-        print(json.dumps([p.id for p in registry.list()], indent=2))
+        print(json.dumps([p.id for p in registry.list()] + [DYNAMIC_PROFILE_ID], indent=2))
+        return 0
+    if args.profile_id == DYNAMIC_PROFILE_ID:
+        print(json.dumps({
+            "id": DYNAMIC_PROFILE_ID,
+            "description": "Caller-supplied question and options (2-8), validated by "
+                           "jev_decisions.dynamic. Options with id 'unknown' or "
+                           "'insufficient_context' count as abstain.",
+        }, indent=2))
         return 0
     try:
         profile = registry.get(args.profile_id)

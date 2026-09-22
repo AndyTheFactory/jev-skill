@@ -80,12 +80,16 @@ echo '{"profile": "task-routing", "context": "<relevant evidence, concise>"}' \
 
 ### Formulating a dynamic question
 
-When no profile fits, build the request yourself per
-`references/dynamic-choice.md`:
+When no starter profile fits, build the request yourself per
+`references/dynamic-choice.md` and label it with the reserved `dynamic`
+profile. The CLI then rejects high-risk/permission and broad-architecture
+questions outright, and treats an `unknown`/`insufficient_context` pick as
+abstained:
 
 ```bash
 cat <<'JSON' | jev decide --stdin
 {
+  "profile": "dynamic",
   "question": "Which caching strategy fits this endpoint?",
   "options": [
     {"id": "lru", "description": "In-process LRU cache."},
@@ -108,7 +112,7 @@ not expected to reveal or read the actual selected option -- shadow mode
 exists precisely so it doesn't bias your reasoning.
 
 **Active mode (opt-in, per profile).** An operator can explicitly configure
-a specific profile to also expose `selected_option_id`/`probability` for an
+a specific profile (including `dynamic`) to also expose `selected_option_id`/`probability` for an
 `accepted` outcome (see `README.md` for the config). `action.permitted` is
 still always `false` even then -- ground rule 2 above applies exactly the
 same way: the visible recommendation is one more input to weigh, never

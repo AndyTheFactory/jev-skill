@@ -112,6 +112,15 @@ mode, a profile not listed, or any non-`accepted` outcome) is unaffected
 and behaves exactly as documented above. See `eval/BENCHMARK.md` for the
 evidence a profile should have behind it before this is turned on.
 
+Ad-hoc questions opt in through the reserved `dynamic` profile: send your own
+`question` and `options` with `"profile": "dynamic"` and list `dynamic` in
+`active_profiles`. Such requests are also checked by `jev_decisions.dynamic`
+(high-risk/permission and broad-architecture questions are rejected with exit
+65), and a pick of an `unknown`/`insufficient_context` option counts as
+abstained. Any other profile label on a request that carries its own
+question/options is dropped, so it can never borrow a vetted profile's
+active-mode setting.
+
 ## Usage
 
 ### Diagnose your setup
@@ -164,7 +173,8 @@ echo '{"profile": "review-triage", "context": "..."}' | jev decide --stdin
 ```
 
 Four starter profiles ship with the package: `task-routing`,
-`workflow-selection`, `review-triage`, `investigation`. Each profile is a
+`workflow-selection`, `review-triage`, `investigation` (plus the reserved
+`dynamic` profile for your own question/options, see "Active mode"). Each profile is a
 pre-defined question/options pair; `jev profile show <id>` prints its full
 definition, including its documented fallback behavior.
 

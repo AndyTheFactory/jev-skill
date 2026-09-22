@@ -18,6 +18,14 @@ from jev_decisions.schemas import MAX_OPTIONS, ChoiceOption, ChoiceRequest
 
 UNCERTAIN_OPTION_IDS = frozenset({"unknown", "insufficient_context"})
 
+# Reserved profile id for caller-formulated questions. Unlike the packaged
+# profiles it has no fixed question/options: the request supplies both, and
+# the CLI runs validate_dynamic_request on it. Listing it in
+# execution.active_profiles is the explicit opt-in for active-mode output on
+# dynamic questions; like any active profile, only a trusted config layer
+# (user/env/cli) can list it.
+DYNAMIC_PROFILE_ID = "dynamic"
+
 # Keyword categories this module rejects, per the issue's suitability
 # criteria: unverifiable, deterministic, high-risk-permission, or
 # broad-architecture judgments. Kept small and explicit; the prompt guidance
