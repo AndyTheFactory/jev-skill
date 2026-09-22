@@ -35,6 +35,13 @@ active it works from **any** working directory, not just this repo:
 cd /tmp && jev --version   # works from anywhere the venv is active
 ```
 
+To make `jev` available system-wide for your user without activating a venv
+(installs to `~/.local/bin` via `uv tool`, `pipx`, or a private venv):
+
+```bash
+scripts/install.sh              # add --typesafe for the SDK provider, --editable to track this checkout
+```
+
 ## Configuration
 
 Set your credential in the environment -- never in a config file:
